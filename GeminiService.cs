@@ -15,7 +15,7 @@ public class GeminiService
 {
     private Client? _client;
     private const string TextModelName = "gemini-3.5-flash-lite";
-    private const string ImageModelName = "gemini-3.8-flash";
+    private const string ImageModelName = "gemini-3.6-flash";
 
     // Concise system prompt — avoids listing rules the model might echo back
     private const string SystemInstruction = 
