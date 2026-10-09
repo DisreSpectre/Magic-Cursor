@@ -362,6 +362,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
  
                     <!-- Modal Header -->
@@ -394,8 +395,25 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Startup Option -->
+                    <!-- Model Selection -->
                     <StackPanel Grid.Row="3" Spacing="8" Margin="0,0,0,20">
+                        <TextBlock Text="Text model:" FontSize="13" FontWeight="SemiBold" Foreground="White"/>
+                        <ComboBox x:Name="TextModelCombo" HorizontalAlignment="Stretch"/>
+                        <TextBlock Text="Image model:" FontSize="13" FontWeight="SemiBold" Foreground="White"/>
+                        <ComboBox x:Name="ImageModelCombo" HorizontalAlignment="Stretch"/>
+                        <Grid Margin="0,4,0,0">
+                            <Button x:Name="RefreshModelsButton" Click="RefreshModelsButton_Click" Background="#1AFFFFFF" BorderThickness="1" BorderBrush="#33FFFFFF" Foreground="White" Padding="10,4" CornerRadius="6" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Refresh list" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="Free tier models only" FontSize="11" Foreground="#888888" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Startup Option -->
+                    <StackPanel Grid.Row="4" Spacing="8" Margin="0,0,0,20">
                         <CheckBox x:Name="StartupCheckBox" 
                                   Content="Run Magic Cursor at Windows startup" 
                                   FontSize="13" 
@@ -404,7 +422,7 @@
 
                     <!-- Status Display -->
                     <TextBlock x:Name="SettingsStatusText" 
-                               Grid.Row="4" 
+                               Grid.Row="5" 
                                Text="" 
                                FontSize="12" 
                                Foreground="#FF4500" 
@@ -413,7 +431,7 @@
                                TextWrapping="Wrap"/>
  
                     <!-- Footer Buttons -->
-                    <Grid Grid.Row="5">
+                    <Grid Grid.Row="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>

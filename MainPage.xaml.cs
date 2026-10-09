@@ -29,6 +29,13 @@ public sealed partial class MainPage : Page
     private bool _isMenuActive = false;
     private Random _random = new Random();
     private GeminiService _geminiService;
+    private readonly List<string> _availableModels = new()
+    {
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+    };
 
     // Drag-to-highlight state
     private bool _isDragging = false;
@@ -117,6 +124,12 @@ public sealed partial class MainPage : Page
 
         var config = ConfigService.LoadConfig();
         _geminiService = new GeminiService(config.GeminiApiKey);
+        _geminiService.UpdateModels(config.TextModel, config.ImageModel);
+
+        if (!string.IsNullOrWhiteSpace(config.TextModel) && !_availableModels.Contains(config.TextModel))
+            _availableModels.Add(config.TextModel);
+        if (!string.IsNullOrWhiteSpace(config.ImageModel) && !_availableModels.Contains(config.ImageModel))
+            _availableModels.Add(config.ImageModel);
 
         _hideTimer = new DispatcherTimer();
         _hideTimer.Interval = TimeSpan.FromSeconds(30);
@@ -1097,11 +1110,13 @@ public sealed partial class MainPage : Page
     {
         _hideTimer.Stop(); // Ensure action menu timer is off
         
-        // Load current config to populate PasswordBox and CheckBox
+        // Load current config to populate PasswordBox, CheckBox, and ComboBoxes
         var config = ConfigService.LoadConfig();
         SettingsApiKeyInput.Password = config.GeminiApiKey;
         StartupCheckBox.IsChecked = config.RunAtStartup;
         
+        PopulateModelCombos(config.TextModel, config.ImageModel);
+
         SettingsStatusText.Visibility = Visibility.Collapsed;
         
         if (isFirstRun)
@@ -1115,6 +1130,95 @@ public sealed partial class MainPage : Page
         
         SettingsModal.Visibility = Visibility.Visible;
         App.AppWindow.SetClickThrough(false); // Enable mouse interaction
+
+        if (!string.IsNullOrWhiteSpace(config.GeminiApiKey) && _availableModels.Count <= 4)
+        {
+            _ = RefreshModelsAsync(config.GeminiApiKey, silent: true);
+        }
+    }
+
+    private void PopulateModelCombos(string? selectedText, string? selectedImage)
+    {
+        string currentText = (TextModelCombo.SelectedItem as string) ?? selectedText ?? "gemini-3.5-flash-lite";
+        string currentImage = (ImageModelCombo.SelectedItem as string) ?? selectedImage ?? "gemini-3.6-flash";
+
+        if (!string.IsNullOrWhiteSpace(currentText) && !_availableModels.Contains(currentText))
+            _availableModels.Insert(0, currentText);
+        if (!string.IsNullOrWhiteSpace(currentImage) && !_availableModels.Contains(currentImage))
+            _availableModels.Insert(0, currentImage);
+
+        TextModelCombo.ItemsSource = null;
+        TextModelCombo.ItemsSource = _availableModels.ToList();
+        TextModelCombo.SelectedItem = currentText;
+
+        ImageModelCombo.ItemsSource = null;
+        ImageModelCombo.ItemsSource = _availableModels.ToList();
+        ImageModelCombo.SelectedItem = currentImage;
+    }
+
+    private async void RefreshModelsButton_Click(object sender, RoutedEventArgs e)
+    {
+        string key = SettingsApiKeyInput.Password.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            SettingsStatusText.Text = "⚠ Enter an API key first to refresh models.";
+            SettingsStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+            SettingsStatusText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        RefreshModelsButton.IsEnabled = false;
+        SettingsStatusText.Text = "Refreshing models...";
+        SettingsStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DeepSkyBlue);
+        SettingsStatusText.Visibility = Visibility.Visible;
+
+        await RefreshModelsAsync(key, silent: false);
+
+        RefreshModelsButton.IsEnabled = true;
+    }
+
+    private async Task RefreshModelsAsync(string apiKey, bool silent)
+    {
+        try
+        {
+            var result = await GeminiService.ListFreeTierModelsAsync(apiKey);
+            if (result.Success)
+            {
+                string selText = (TextModelCombo.SelectedItem as string) ?? "";
+                string selImage = (ImageModelCombo.SelectedItem as string) ?? "";
+
+                foreach (var m in result.Models)
+                {
+                    if (!_availableModels.Contains(m))
+                        _availableModels.Add(m);
+                }
+
+                PopulateModelCombos(selText, selImage);
+
+                if (!silent)
+                {
+                    SettingsStatusText.Text = $"✨ Found {result.Models.Count} free-tier models.";
+                    SettingsStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.SpringGreen);
+                    SettingsStatusText.Visibility = Visibility.Visible;
+                }
+            }
+            else if (!silent)
+            {
+                SettingsStatusText.Text = $"⚠ Failed to refresh: {result.Error}";
+                SettingsStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                SettingsStatusText.Visibility = Visibility.Visible;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("RefreshModelsAsync error", ex);
+            if (!silent)
+            {
+                SettingsStatusText.Text = $"⚠ Refresh error: {ex.Message}";
+                SettingsStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                SettingsStatusText.Visibility = Visibility.Visible;
+            }
+        }
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -1143,6 +1247,8 @@ public sealed partial class MainPage : Page
     {
         string newKey = SettingsApiKeyInput.Password.Trim();
         bool runAtStartup = StartupCheckBox.IsChecked == true;
+        string textModel = (TextModelCombo.SelectedItem as string) ?? "gemini-3.5-flash-lite";
+        string imageModel = (ImageModelCombo.SelectedItem as string) ?? "gemini-3.6-flash";
         
         if (string.IsNullOrWhiteSpace(newKey))
         {
@@ -1153,7 +1259,11 @@ public sealed partial class MainPage : Page
         }
 
         // Save using ConfigService
-        var config = new ConfigData { GeminiApiKey = newKey, RunAtStartup = runAtStartup };
+        var config = ConfigService.LoadConfig();
+        config.GeminiApiKey = newKey;
+        config.RunAtStartup = runAtStartup;
+        config.TextModel = textModel;
+        config.ImageModel = imageModel;
         ConfigService.SaveConfig(config);
         
         // Update Registry for Windows Startup
@@ -1161,6 +1271,8 @@ public sealed partial class MainPage : Page
         
         // Update GeminiService
         _geminiService.UpdateApiKey(newKey);
+        _geminiService.UpdateModels(textModel, imageModel);
+        Log.Info($"Models: selected text={textModel} image={imageModel}");
         
         // Show success status
         SettingsStatusText.Text = "✨ Settings saved successfully!";

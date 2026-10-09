@@ -8,6 +8,8 @@ public class ConfigData
 {
     public string GeminiApiKey { get; set; } = string.Empty;
     public bool RunAtStartup { get; set; } = false;
+    public string TextModel { get; set; } = "gemini-3.5-flash-lite";
+    public string ImageModel { get; set; } = "gemini-3.6-flash";
 }
 
 public static class ConfigService
@@ -33,9 +35,9 @@ public static class ConfigService
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Fallback if file corrupted or inaccessible
+            Log.Error("Config load/save failed", ex);
         }
 
         return new ConfigData();
@@ -53,9 +55,9 @@ public static class ConfigService
             string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(FilePath, json);
         }
-        catch
+        catch (Exception ex)
         {
-            // Fail silently
+            Log.Error("Config load/save failed", ex);
         }
     }
 }

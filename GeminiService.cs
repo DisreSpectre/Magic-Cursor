@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using Google.GenAI;
@@ -8,14 +11,22 @@ using Google.GenAI.Types;
 
 namespace MagicCursor;
 
+public record ModelListResult(bool Success, IReadOnlyList<string> Models, string Error);
+
 // Pre-compiled regex patterns — compiled once at startup, reused across all API calls.
 // Avoids the ~1-3ms overhead of re-interpreting patterns on every CleanResponse invocation.
 
 public class GeminiService
 {
     private Client? _client;
-    private const string TextModelName = "gemini-3.5-flash-lite";
-    private const string ImageModelName = "gemini-3.6-flash";
+    private string _textModel = "gemini-3.5-flash-lite";
+    private string _imageModel = "gemini-3.6-flash";
+
+    // Verified: 2026-10-09 (ai.google.dev: flash models have free tier with generateContent and multimodal input)
+    private static readonly Regex FreeTierIncludePattern = new(@"flash", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ExcludePattern = new(@"tts|image|imagen|veo|embedding|live|audio|aqa|robotics|computer-use|learnlm", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     // Concise system prompt — avoids listing rules the model might echo back
     private const string SystemInstruction = 
@@ -34,6 +45,12 @@ public class GeminiService
         _client = !string.IsNullOrWhiteSpace(apiKey) ? new Client(apiKey: apiKey) : null;
     }
 
+    public void UpdateModels(string textModel, string imageModel)
+    {
+        if (!string.IsNullOrWhiteSpace(textModel)) _textModel = textModel.Trim();
+        if (!string.IsNullOrWhiteSpace(imageModel)) _imageModel = imageModel.Trim();
+    }
+
     public bool IsInitialized => _client != null;
 
     public async Task<string> AnalyzeTextAsync(string input, byte[]? imageBytes = null, bool treatAsImage = false)
@@ -46,11 +63,11 @@ public class GeminiService
         try
         {
             var contents = new List<Content>();
-            string modelToUse = TextModelName;
+            string modelToUse = _textModel;
 
             if (treatAsImage && imageBytes != null)
             {
-                modelToUse = ImageModelName;
+                modelToUse = _imageModel;
                 contents.Add(new Content
                 {
                     Role = "user",
@@ -95,7 +112,14 @@ public class GeminiService
         }
         catch (Exception ex)
         {
-            return $"⚠ AI Error: {ex.Message}";
+            string msg = ex.Message;
+            if (msg.Contains("429", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("RESOURCE_EXHAUSTED", StringComparison.OrdinalIgnoreCase))
+            {
+                msg += " (This model may not be available on the free tier — choose another in Settings.)";
+            }
+            return $"⚠ AI Error: {msg}";
         }
     }
 
@@ -170,5 +194,76 @@ public class GeminiService
         text = text.Trim();
 
         return string.IsNullOrWhiteSpace(text) ? raw.Trim() : text;
+    }
+
+    public static async Task<ModelListResult> ListFreeTierModelsAsync(string apiKey, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return new ModelListResult(false, Array.Empty<string>(), "API key is required.");
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+            );
+            request.Headers.Add("x-goog-api-key", apiKey);
+
+            using var response = await HttpClient.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                string statusMsg = $"API error {(int)response.StatusCode}: {response.ReasonPhrase}";
+                Log.Error($"Models: refresh failed ({statusMsg})");
+                return new ModelListResult(false, Array.Empty<string>(), statusMsg);
+            }
+
+            string json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+
+            var list = new List<string>();
+            if (doc.RootElement.TryGetProperty("models", out var modelsElem) && modelsElem.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in modelsElem.EnumerateArray())
+                {
+                    string name = m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                    if (name.StartsWith("models/"))
+                    {
+                        name = name.Substring(7);
+                    }
+
+                    bool canGenerate = false;
+                    if (m.TryGetProperty("supportedGenerationMethods", out var methods) && methods.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var method in methods.EnumerateArray())
+                        {
+                            if (method.GetString() == "generateContent")
+                            {
+                                canGenerate = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (canGenerate && FreeTierIncludePattern.IsMatch(name) && !ExcludePattern.IsMatch(name))
+                    {
+                        list.Add(name);
+                    }
+                }
+            }
+
+            var deduped = list.Distinct(StringComparer.OrdinalIgnoreCase)
+                              .OrderByDescending(x => x, StringComparer.OrdinalIgnoreCase)
+                              .ToList();
+
+            Log.Info($"Models: refresh ok count={deduped.Count}");
+            return new ModelListResult(true, deduped, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Models: refresh failed ({ex.GetType().Name}: {ex.Message})", ex);
+            return new ModelListResult(false, Array.Empty<string>(), ex.Message);
+        }
     }
 }
