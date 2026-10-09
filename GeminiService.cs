@@ -14,8 +14,8 @@ namespace MagicCursor;
 public class GeminiService
 {
     private Client? _client;
-    private const string GemmaModelName = "gemma-4-26b-a4b-it";
-    private const string GeminiModelName = "gemini-2.5-flash";
+    private const string TextModelName = "gemini-3.5-flash-lite";
+    private const string ImageModelName = "gemini-3.8-flash";
 
     // Concise system prompt — avoids listing rules the model might echo back
     private const string SystemInstruction = 
@@ -46,11 +46,11 @@ public class GeminiService
         try
         {
             var contents = new List<Content>();
-            string modelToUse = GemmaModelName;
+            string modelToUse = TextModelName;
 
             if (treatAsImage && imageBytes != null)
             {
-                modelToUse = GeminiModelName;
+                modelToUse = ImageModelName;
                 contents.Add(new Content
                 {
                     Role = "user",
