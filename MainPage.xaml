@@ -214,6 +214,14 @@
                         </StackPanel>
                     </Button>
 
+                    <!-- Feature 3: Google Lens -->
+                    <Button x:Name="LensButton" Click="LensButton_Click" AutomationProperties.Name="Search with Google Lens" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" CornerRadius="6">
+                        <StackPanel Orientation="Horizontal">
+                            <FontIcon Glyph="&#xE8B9;" FontSize="16" Margin="0,0,12,0" Foreground="#34A853"/>
+                            <TextBlock Text="Search with Lens" FontSize="13" Foreground="White"/>
+                        </StackPanel>
+                    </Button>
+
                     <MenuFlyoutSeparator Margin="0,4,0,4"/>
 
                     <!-- Settings -->

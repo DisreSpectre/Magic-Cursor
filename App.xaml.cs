@@ -1,4 +1,4 @@
-﻿using Windows.ApplicationModel;
+using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
@@ -39,12 +39,7 @@ public partial class App : Application
     private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
         e.Handled = true; // Attempt to keep it alive to write the log
-        try
-        {
-            string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "MagicCursorCrashLog.txt");
-            File.WriteAllText(logPath, $"CRASH AT {DateTime.Now}\n{e.Exception.Message}\n{e.Exception.StackTrace}");
-        }
-        catch { }
+        Log.Error("Unhandled exception", e.Exception);
     }
 
     /// <summary>

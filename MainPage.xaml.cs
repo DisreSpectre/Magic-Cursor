@@ -134,6 +134,7 @@ public sealed partial class MainPage : Page
 
     private void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
+        LensService.CleanupTemp();
         _mouseHook.Start();
 
         var config = ConfigService.LoadConfig();
@@ -205,8 +206,7 @@ public sealed partial class MainPage : Page
             }
             catch (Exception ex)
             {
-                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "MagicCursorCrashLog.txt");
-                File.AppendAllText(logPath, $"SHAKE DETECTED CRASH: {ex.Message}\n{ex.StackTrace}\n");
+                Log.Error("Shake detected crash", ex);
             }
         });
     }
@@ -217,7 +217,7 @@ public sealed partial class MainPage : Page
         {
             // Ensure menu stays within RootCanvas bounds
             double menuWidth = 220; // Fixed width from XAML
-            double estimatedMenuHeight = 220; 
+            double estimatedMenuHeight = 260; 
 
             double canvasWidth = RootCanvas.ActualWidth;
             double canvasHeight = RootCanvas.ActualHeight;
@@ -237,8 +237,7 @@ public sealed partial class MainPage : Page
         }
         catch (Exception ex)
         {
-            string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "MagicCursorCrashLog.txt");
-            File.AppendAllText(logPath, $"AdjustMenuPosition CRASH: {ex.Message}\n{ex.StackTrace}\n");
+            Log.Error("AdjustMenuPosition crash", ex);
         }
     }
 
@@ -491,6 +490,82 @@ public sealed partial class MainPage : Page
     private async void SummarizeButton_Click(object sender, RoutedEventArgs e)
     {
         await RunAI("Provide an extremely concise summary of this text.", "📝 Summarizing…");
+    }
+
+    private async void LensButton_Click(object sender, RoutedEventArgs e)
+    {
+        LensButton.IsEnabled = false;
+        try
+        {
+            if (_capturedImageBytes == null && _capturedBitmap != null)
+            {
+                _capturedImageBytes = await GetImageBytesAsync(_capturedBitmap);
+            }
+
+            if (_capturedImageBytes == null)
+            {
+                Log.Info("Lens: no selection");
+                FormatResponseText("⚠️ Please drag-select an area of the screen first before searching with Lens.");
+                ResponseModal.Visibility = Visibility.Visible;
+                App.AppWindow.SetClickThrough(false);
+                CloseMenu();
+                return;
+            }
+
+            if (_capturedImageBytes.Length > 8 * 1024 * 1024)
+            {
+                Log.Info($"Lens: selection too large ({_capturedImageBytes.Length} bytes)");
+                FormatResponseText("⚠️ **Selection too large:** The captured image exceeds 8 MB. Please select a smaller region.");
+                ResponseModal.Visibility = Visibility.Visible;
+                App.AppWindow.SetClickThrough(false);
+                CloseMenu();
+                return;
+            }
+
+            Log.Info($"Lens: clicked, selection bytes={_capturedImageBytes.Length}");
+
+            var result = await LensService.SearchAsync(_capturedImageBytes);
+            if (result.Success)
+            {
+                CloseMenu();
+                return;
+            }
+
+            // Fallback: copy image to clipboard and open Google Lens
+            try
+            {
+                var stream = new InMemoryRandomAccessStream();
+                using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+                {
+                    writer.WriteBytes(_capturedImageBytes);
+                    await writer.StoreAsync();
+                }
+
+                var dataPackage = new DataPackage();
+                dataPackage.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
+                Clipboard.SetContent(dataPackage);
+
+                await Windows.System.Launcher.LaunchUriAsync(new Uri("https://lens.google.com/"));
+                Log.Info("Lens: method=ClipboardFallback launched OK");
+
+                FormatResponseText("Image copied. Press **Ctrl+V** on the Lens page.");
+                ResponseModal.Visibility = Visibility.Visible;
+                App.AppWindow.SetClickThrough(false);
+                CloseMenu();
+            }
+            catch (Exception fallbackEx)
+            {
+                Log.Error($"Lens: method=ClipboardFallback failed ({fallbackEx.GetType().Name}: {fallbackEx.Message})", fallbackEx);
+                FormatResponseText($"❌ Failed to launch Google Lens: {fallbackEx.Message}");
+                ResponseModal.Visibility = Visibility.Visible;
+                App.AppWindow.SetClickThrough(false);
+                CloseMenu();
+            }
+        }
+        finally
+        {
+            LensButton.IsEnabled = true;
+        }
     }
 
     private async Task RunAI(string promptPrefix, string loadingMsg)
@@ -1124,8 +1199,7 @@ public sealed partial class MainPage : Page
         }
         catch (Exception ex)
         {
-            string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "MagicCursorCrashLog.txt");
-            File.AppendAllText(logPath, $"SetStartup Error: {ex.Message}\n");
+            Log.Error("SetStartup Error", ex);
         }
     }
 }
