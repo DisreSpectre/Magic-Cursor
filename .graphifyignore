@@ -1,0 +1,13 @@
+*
+!*/
+!*.cs
+!*.xaml
+!*.csproj
+
+bin/
+obj/
+.vs/
+graphify-out/
+tools/
+*.g.cs
+*.g.i.cs

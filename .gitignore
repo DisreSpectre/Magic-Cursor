@@ -8,10 +8,6 @@
 *.sln.docstates
 *.dbmdl
 *.dbproj.schemaview
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
 
 ## [Build logs]
 *.log
@@ -58,6 +54,26 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+## [Secrets & credentials]
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+.env*
+!.env.example
+config.json
+secrets*.json
+credentials*.json
+*.local.json
+
+## [App runtime data (the app writes to %LocalAppData%, never the repo; defense in depth)]
+/chats/
+/logs/
+/temp/
+lens_*.html
+
 ## [Tooling]
 graphify-out/
-
+.graphify_*
+.gemini/

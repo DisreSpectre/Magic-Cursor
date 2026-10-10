@@ -1,0 +1,26 @@
+# Build output and generated files
+bin/
+obj/
+.vs/
+Generated Files/
+AppPackages/
+BundleArtifacts/
+graphify-out/
+
+# Media: wastes context, no value to the agent
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+
+# Secrets (defense in depth)
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+.env*
+config.json
+secrets*.json
