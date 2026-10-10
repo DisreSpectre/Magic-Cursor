@@ -9,39 +9,56 @@ This file covers WinUI 3-specific patterns, conventions, and architecture guidan
 
 ---
 
-## 1. Architecture -- MVVM Pattern
+## Current Architecture & Migration Path
+
+- **Current State**:
+  - The MagicCursor application is a transparent, click-through, mouse-shake-activated desktop overlay.
+  - The architecture is **not MVVM**. The primary presentation, screen capture, OCR coordination, and AI request lifecycle currently reside in `MainPage.xaml.cs` (a large code-behind).
+  - Helper and configuration services (`ConfigService`, `LensService`, `Log`) are static classes; `GeminiService` is instantiated manually without Dependency Injection.
+  - There are currently no ViewModels, no `CommunityToolkit.Mvvm`, and no `.resw` resource files.
+- **Rule for Future Work (Voice & Chat)**:
+  - **Do not add new responsibilities to `MainPage.xaml.cs`**.
+  - For all new features (**voice mode**, **chat functionality**, **settings panels**), adopt **MVVM**:
+    - Create dedicated ViewModels (e.g. `ChatViewModel`, `VoiceViewModel`).
+    - Use `CommunityToolkit.Mvvm` (`ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`).
+    - Encapsulate business logic into services implementing clear interfaces (`IVoiceService`, `IChatService`).
+    - Introduce dependency injection or clean factory composition for new components.
+
+---
+
+## 1. Architecture -- MVVM Pattern (Mandatory for New Features)
 
 ### Overview
 
-Use **Model-View-ViewModel (MVVM)** for all UI features:
+Use **Model-View-ViewModel (MVVM)** for all new features and standalone views:
 
 | Layer | Responsibility | Example |
 |---|---|---|
-| **Model** | Data structures & business entities | `Item.cs`, `UserProfile.cs` |
-| **View** | XAML UI -- layout, styles, animations | `MainPage.xaml` |
-| **ViewModel** | UI state, commands, data transformation | `MainViewModel.cs` |
-| **Service** | Business logic, data access, navigation | `IDataService.cs`, `NavigationService.cs` |
+| **Model** | Data structures & conversation entities | `ChatMessage.cs`, `VoiceSession.cs` |
+| **View** | XAML UI -- layout, controls, animations | `ChatPanel.xaml`, `VoiceIndicator.xaml` |
+| **ViewModel** | UI state, commands, token streaming | `ChatViewModel.cs`, `VoiceViewModel.cs` |
+| **Service** | Platform speech, LLM communication, storage | `IVoiceService.cs`, `IChatService.cs` |
 
-### Project Folder Structure
+### Project Folder Structure (New & Growing Areas)
 
 ```
-<ProjectName>/
-  Models/           -> Data classes
-  ViewModels/       -> ViewModels (one per page/dialog)
-  Views/            -> XAML pages and windows
-  Services/         -> Business logic & platform services
+MagicCursor/
+  Models/           -> Data & conversation classes
+  ViewModels/       -> ViewModels (ChatViewModel, VoiceViewModel)
+  Views/            -> New XAML controls/windows (ChatView, SettingsView)
+  Services/         -> Business logic & platform interfaces (IVoiceService, etc.)
   Converters/       -> IValueConverter implementations
   Helpers/          -> Static utility methods
-  Controls/         -> Custom/reusable controls
+  Controls/         -> Reusable UI controls
   Strings/
     en-us/
-      Resources.resw
+      Resources.resw -> Localized resources
   Assets/           -> Images, icons, splash screens
 ```
 
 ### ViewModel Base
 
-Use `CommunityToolkit.Mvvm` (recommended) for boilerplate-free ViewModels:
+Use `CommunityToolkit.Mvvm` for boilerplate-free ViewModels:
 
 ```xml
 <!-- Use latest stable version; do not hard-code version numbers in instructions -->
@@ -148,6 +165,7 @@ using Microsoft.UI.Xaml.Controls;
 
 - One attribute per line for controls with 3+ attributes.
 - Order: `x:Name` -> `x:Uid` -> `AutomationProperties` -> layout -> data -> style.
+- **Note on existing code**: Existing XAML in `MainPage.xaml` does not follow this strict attribute ordering; existing markup is exempt unless being modified, but all new XAML must follow this convention.
 
 ---
 
@@ -293,21 +311,17 @@ if (Content is FrameworkElement rootElement)
 
 ---
 
-## 7. System Backdrop (Mica / Acrylic)
+## 7. System Backdrop & Transparent Overlay
 
-This project uses **Mica** backdrop (already configured in `MainWindow.xaml`):
+This project uses a transparent overlay with `winuiex:TransparentTintBackdrop` in `MainWindow.xaml`:
 
 ```xml
-<Window.SystemBackdrop>
-    <MicaBackdrop />
-</Window.SystemBackdrop>
+<winuiex:WindowEx.SystemBackdrop>
+    <winuiex:TransparentTintBackdrop TintColor="Transparent" />
+</winuiex:WindowEx.SystemBackdrop>
 ```
 
-Alternatives:
-```xml
-<DesktopAcrylicBackdrop />   <!-- Acrylic -->
-<MicaBackdrop Kind="BaseAlt" /> <!-- Mica Alt -->
-```
+> **Warning:** Do not switch to Mica (`MicaBackdrop`) or Acrylic without understanding the impact on click-through and transparency. Switching backdrops or adding opaque backgrounds to the root Grid will break the core transparent canvas and pass-through input architecture of MagicCursor. If hosting standalone windows (e.g. a dedicated chat window or settings window in the future), Mica or DesktopAcrylic may be used for those specific windows.
 
 ---
 
@@ -339,6 +353,11 @@ Alternatives:
 
 | Pitfall | Solution |
 |---|---|
+| Switching backdrop from `TransparentTintBackdrop` to Mica | Breaks full-screen transparent click-through overlay. Keep `winuiex:TransparentTintBackdrop` for the overlay window. |
+| Hit-testing on transparent XAML elements | In WinUI 3, an element with `Background="{x:Null}"` does not capture pointer events. Use `Background="Transparent"` for interactive areas and `IsHitTestVisible="False"` for passthrough areas. |
+| DPI scaling mismatch in screen capture/overlay math | GDI `BitBlt` uses physical pixels while XAML uses DIPs (device-independent pixels). Always convert coordinates using `GetDpiForWindow(hwnd) / 96.0`. |
+| Unmanaged Windows Hook leaks | Low-level mouse hooks (`SetWindowsHookEx`) must be unhooked (`UnhookWindowsHookEx`) on window closed / app exit to prevent input lag and unmanaged resource leaks. |
+| Adding new features directly into `MainPage.xaml.cs` | `MainPage` is already over 1,300 lines. New features (voice, chat) must be built in separate ViewModels/Services using MVVM. |
 | Using `Windows.UI.Xaml` namespace | Use `Microsoft.UI.Xaml` for WinUI 3 |
 | Calling `Window.Current` | Not available in WinUI 3 -- pass window reference explicitly |
 | Using `CoreDispatcher` | Use `DispatcherQueue` instead |

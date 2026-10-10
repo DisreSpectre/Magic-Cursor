@@ -1,55 +1,50 @@
 ---
-description: 'Security requirements for secrets management, input validation, permissions, and secure coding'
+description: 'Secrets, input validation, permissions, secure coding'
 applyTo: '**/*.cs, **/*.appxmanifest'
 ---
 
 # Security
 
-These rules apply to **every feature and change**. They are not optional add-ons.
+## Current state
 
----
+- API key is stored plaintext at `%LOCALAPPDATA%\MagicCursor\config.json`.
+- **New secrets must use `PasswordVault` or Windows Credential Manager.** Migrate the existing key opportunistically when refactoring settings.
+- Never hard-code secrets or commit them to git.
 
 ## Rules
 
-- **Never hard-code secrets** (API keys, passwords, connection strings) — use environment variables, Windows Credential Manager, or Azure Key Vault.
-- Validate and sanitize **all external input** (user input, file content, network responses).
-- Use `SecureString` or `PasswordVault` for sensitive data in memory when practical.
-- Follow the **principle of least privilege** — request only the permissions the app actually needs in `Package.appxmanifest`.
-- Keep NuGet packages up to date — run `dotnet list package --outdated` regularly.
-- Enable **code signing** for published MSIX packages. Use the `winapp` CLI rather than hand-rolling `signtool`:
-  - Generate a development certificate matching the manifest publisher: `winapp cert generate --manifest .\Package.appxmanifest --install`.
-  - Inspect a cert before signing: `winapp cert info .\devcert.pfx`.
-  - Sign an existing file: `winapp sign .\MyApp.msix --cert .\devcert.pfx`.
-  - Build + sign in one step: `winapp pack .\bin\<Platform>\Release\<TFM>\win-<rid> --cert .\devcert.pfx`.
-  - Production releases must be signed by a trusted certificate authority -- never ship the development cert.
-- When using `HttpClient`, always validate TLS certificates and use HTTPS.
-- Never log sensitive data (PII, tokens, passwords).
+- Validate/sanitize all external input. Sanitize markdown/HTML to prevent injection and malicious URI schemes.
+- Least privilege in `Package.appxmanifest`.
+- HTTPS + TLS validation always. Keep dependencies updated (`dotnet list package --outdated`).
+- Code signing: use `winapp` CLI. Production releases signed by a trusted CA — never ship the dev cert.
+- Never log PII, tokens, passwords, raw audio, or chat message bodies. Log only status codes, error types, metrics.
+
+## Voice
+
+- Declare `<DeviceCapability Name="microphone" />` in `Package.appxmanifest`. Request permission only when voice mode activates.
+- Never persist raw microphone audio unless explicitly requested by the user.
+- Transmit audio only over TLS when using cloud speech services.
+
+## Chat
+
+- Never log prompt or response content.
+- If persisting history, use `ApplicationData.Current.LocalFolder` or DPAPI-protected storage.
 
 ## Anti-patterns
 
-- Storing secrets in `appsettings.json` committed to source control.
-- Disabling TLS validation for debugging and forgetting to re-enable it.
-- Using `Process.Start` with unsanitized user input.
-- Broad `try { } catch (Exception) { }` that swallows errors silently without any logging.
+- Secrets in source control. Disabling TLS. `Process.Start` with unsanitized input. Silent `catch (Exception)`.
 
 ## Validation
 
-- Build & register the MSIX package — see **Build, Run & Deploy** in `.github/agents/Agents.md`.
-- Check for hard-coded secrets: search for `password`, `apikey`, `secret`, `connectionstring` in `.cs` files.
-
-### Verification Checklist
-
-- [ ] No secrets are hard-coded
+- Grep for `password`, `apikey`, `secret`, `connectionstring` in `.cs`.
+- Verify audio and chat content excluded from `Log.cs` output.
+- `Package.appxmanifest` contains only required capabilities.
 
 ## Must Read & Research
 
-> **Agent Rule:** Before any security-related change (auth, input handling, permissions, HTTP), you **must** fetch and review these references using `fetch_webpage`. Apply what you learn.
-
-| # | Reference | When to consult |
+| # | Reference | When |
 |---|---|---|
-| 1 | [.NET Security Best Practices](https://learn.microsoft.com/en-us/dotnet/standard/security/) | Any code handling credentials, tokens, or sensitive data |
-| 2 | [Secure coding guidelines for .NET](https://learn.microsoft.com/en-us/dotnet/standard/security/secure-coding-guidelines) | Input validation, exception handling, type safety |
-| 3 | [MSIX Security](https://learn.microsoft.com/en-us/windows/msix/msix-container) | Packaging, signing, or distribution changes |
-| 4 | [Package.appxmanifest capabilities](https://learn.microsoft.com/en-us/windows/uwp/packaging/app-capability-declarations) | Adding or modifying app capabilities/permissions |
-
-
+| 1 | [.NET Security](https://learn.microsoft.com/en-us/dotnet/standard/security/) | Credentials, sensitive data |
+| 2 | [Secure coding guidelines](https://learn.microsoft.com/en-us/dotnet/standard/security/secure-coding-guidelines) | Input validation, exceptions |
+| 3 | [MSIX Security](https://learn.microsoft.com/en-us/windows/msix/msix-container) | Packaging, signing |
+| 4 | [App capabilities](https://learn.microsoft.com/en-us/windows/uwp/packaging/app-capability-declarations) | Permissions |

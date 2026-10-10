@@ -5,28 +5,39 @@ applyTo: '**/*Tests.cs, **/*Test.cs, **/*.Tests.csproj'
 
 # Testing — Unit Tests, Build & Run
 
-Every public method and class must have corresponding unit tests. Tests are not optional.
+**New** business logic (services, ViewModels, helpers) must have unit tests. Existing code should be covered as it is refactored.
 
 ---
 
-## 1. Test Framework & Project Setup
+## Current State & Scope
+
+The MagicCursor repository currently contains **no unit test project** (`MagicCursor.Tests`), analyzers, or automated test suites. The legacy overlay code in `MainPage.xaml.cs` relies on Win32 hooks and UI-coupled handlers that are not unit testable as-is.
+
+- **Policy**:
+  - Existing overlay code in `MainPage.xaml.cs` is exempt from retroactive unit tests until isolated or refactored.
+  - When implementing **new features (voice mode, chat functionality)**, establish the test project and author unit tests for new services, ViewModels, and helpers.
+  - Design new features against interfaces (`IVoiceService`, `IChatService`) to make them mockable and testable without hardware (mic) or cloud API dependencies.
+
+---
+
+## 1. Test Framework & Project Setup (When You Create the Test Project)
 
 ### Recommended Stack
 
 | Component | Package | Purpose |
 |---|---|---|
 | Test Framework | `MSTest` | Test runner & assertions |
-| Mocking | `Moq` | Mock dependencies |
+| Mocking | `Moq` | Mock dependencies & interfaces |
 | UI Testing | `Microsoft.Windows.Apps.Test` | WinUI UI automation (optional) |
 
 ### Test Project Setup
 
-Create a test project alongside the main project:
+When creating the test project alongside the main project:
 
 ```
 <SolutionRoot>/
-  <ProjectName>/           ← Main app project
-  <ProjectName>.Tests/     ← Unit test project
+  MagicCursor/           ← Main app project
+  MagicCursor.Tests/     ← Unit test project
 ```
 
 Test project `.csproj` should reference the main project:
@@ -35,14 +46,13 @@ Test project `.csproj` should reference the main project:
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- Match TargetFramework to the main project's .csproj -->
-    <TargetFramework><!-- same as the main project's .csproj TargetFramework --></TargetFramework>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <UseWinUI>true</UseWinUI>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Use latest stable versions; do not hard-code version numbers in instructions -->
     <PackageReference Include="MSTest.TestAdapter" Version="*" />
     <PackageReference Include="MSTest.TestFramework" Version="*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="*" />
@@ -50,7 +60,7 @@ Test project `.csproj` should reference the main project:
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\<ProjectName>\<ProjectName>.csproj" />
+    <ProjectReference Include="..\MagicCursor\MagicCursor.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -104,26 +114,40 @@ public void Add_TwoPositiveNumbers_ReturnsSum()
 }
 ```
 
-### ViewModel Testing Example
+### Voice & Chat Testing Guidance
+
+- **Service Interfaces**: Never depend directly on concrete audio drivers or live cloud LLM sockets in ViewModels. Always define interfaces (`IVoiceService`, `IChatService`, `ISpeechRecognitionService`) and mock them using `Moq`.
+- **Chat ViewModel Testing**:
+  - Test initial state (empty message collection, not streaming, input blank).
+  - Test command execution: `SendMessageCommand` appends user message immediately and flags `IsGenerating = true`.
+  - Test streaming callbacks: incoming token chunks update the last assistant message.
+  - Test error resilience: API exceptions trigger error messages without crashing the ViewModel.
+- **Voice State Testing**:
+  - Test state changes (`Idle` -> `Listening` -> `Recognized` -> `Error`).
+  - Test hotkey / activation event handlers without physical microphone input.
+
+### ViewModel & Mock Testing Example (Chat / Voice)
 
 ```csharp
 [TestMethod]
-public async Task LoadItemsAsync_OnSuccess_PopulatesItems()
+public async Task SendMessageAsync_WhenInvoked_AppendsUserAndAssistantMessages()
 {
     // Arrange
-    var mockService = new Mock<IDataService>();
-    mockService
-        .Setup(s => s.GetItemsAsync())
-        .ReturnsAsync(new List<Item> { new("Test") });
+    var mockChat = new Mock<IChatService>();
+    mockChat
+        .Setup(s => s.StreamResponseAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        .Returns(new[] { "Hello", " world!" }.ToAsyncEnumerable());
 
-    var viewModel = new MainViewModel(mockService.Object);
+    var viewModel = new ChatViewModel(mockChat.Object);
+    viewModel.InputText = "Hi";
 
     // Act
-    await viewModel.LoadItemsAsync();
+    await viewModel.SendMessageCommand.ExecuteAsync(null);
 
     // Assert
-    Assert.AreEqual(1, viewModel.Items.Count);
-    Assert.IsFalse(viewModel.IsLoading);
+    Assert.AreEqual(2, viewModel.Messages.Count); // User prompt + Assistant reply
+    Assert.AreEqual("Hello world!", viewModel.Messages[1].Content);
+    Assert.IsFalse(viewModel.IsGenerating);
 }
 ```
 
@@ -225,23 +249,23 @@ dotnet test -c Debug -p:Platform=$Platform --verbosity normal
 When you write or modify code, follow this sequence:
 
 1. **Implement the feature or fix** in the main project.
-2. **Write unit tests** for every new/changed public method.
-3. **Build** — see **Build, Run & Deploy** in `.github/agents/Agents.md`. Fix all errors and warnings.
-4. **Run tests** — `dotnet test -c Debug -p:Platform=$Platform` (from the test project folder; detect `$Platform` as shown above) and ensure all pass.
+2. **Write unit tests** for every new/changed public method in new services, ViewModels, and helpers. (Existing untouched legacy methods in `MainPage.xaml.cs` are exempt).
+3. **Build** the solution and fix any compilation errors or warnings.
+4. **Run tests** — `dotnet test -c Debug -p:Platform=$Platform` once the test project is present and ensure all pass.
 5. **Review** — Confirm tests cover the happy path, edge cases, and error cases.
 
 ### When Modifying Existing Code
 
-1. **Run existing tests first** to establish a baseline.
+1. **Run existing tests first** (once a test suite is created) to establish a baseline.
 2. Make the code change.
 3. **Run tests again** — fix any failures.
-4. **Add new tests** if the change introduces new behaviour.
+4. **Add new tests** for any new behaviour or when refactoring legacy routines into testable services.
 
 ### Coverage Goals
 
-- Aim for **80%+ code coverage** on business logic (ViewModels, Services).
+- Aim for **80%+ code coverage** on new business logic (ViewModels, Services).
 - 100% coverage of utility/helper methods.
-- UI code-behind is exempt from unit test coverage (tested via integration/UI tests).
+- Legacy overlay code-behind (`MainPage.xaml.cs`) is exempt from unit test coverage until refactored into services.
 
 ---
 
@@ -260,11 +284,19 @@ When you write or modify code, follow this sequence:
 
 ## Validation
 
-- Build & run tests — see **Build, Run & Deploy** in `.github/agents/Agents.md`.
-- Verify all tests pass — zero failures, zero skipped without justification.
+- Build & run tests once `MagicCursor.Tests` is created.
+- Verify all tests pass — zero failures.
 - Verify naming follows `MethodName_Scenario_ExpectedResult` pattern.
 - Verify AAA structure (Arrange/Act/Assert) in every test method.
-- Confirm coverage goals: 80%+ on ViewModels/Services, 100% on helpers.
+- Confirm coverage on new ViewModels/Services (ChatViewModel, VoiceService).
+
+### Verification Checklist
+
+- [ ] New services and ViewModels implement interfaces for mockability
+- [ ] Unit tests cover happy path, streaming/state events, and error paths
+- [ ] Test project (`MagicCursor.Tests`) builds and executes cleanly
+- [ ] Naming follows `MethodName_Scenario_ExpectedResult` pattern
+- [ ] Legacy overlay code untouched by new features is cleanly separated
 
 ---
 

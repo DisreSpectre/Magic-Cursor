@@ -83,10 +83,23 @@ applyTo: '**/*.cs, **/*.xaml, **/*.csproj'
 
 ---
 
+### Voice Mode & Chat API Selection Guidelines
+
+- **Voice Mode (Speech Recognition & Synthesis)**:
+  - Check whether **WinAppSDK** or **Windows AI APIs** provide speech recognition/synthesis capabilities before using older Platform SDK (`Windows.Media.SpeechRecognition`, `Windows.Media.SpeechSynthesis`) APIs.
+  - Prefer WinAppSDK when an equivalent exists in the current SDK version (check package `Microsoft.WindowsAppSDK` 1.8+).
+  - If using platform speech recognition, verify system capability and language pack availability.
+- **Chat Streaming & Language Models**:
+  - For on-device LLM inference or chat capabilities, check for **WinAppSDK Windows AI APIs** (e.g. `Microsoft.Windows.AI.Generative` / Phi Silica / LanguageModel) to enable offline or hybrid local execution.
+  - If cloud LLM is used (e.g. `Google.GenAI`), design interfaces so WinAppSDK local AI or cloud AI can be swapped seamlessly.
+
+---
+
 ## Validation
 
 - Before implementing any platform feature, confirm the API is available in the current Windows App SDK version by checking the [release notes](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/stable-channel).
-- For features requiring specific hardware (NPU), provide a graceful fallback for unsupported devices.
-- When both WinAppSDK and Platform SDK offer a similar API, prefer the WinAppSDK version.
+- For features requiring specific hardware (NPU or Copilot+ PC), provide a graceful cloud/CPU fallback for unsupported devices.
+- When both WinAppSDK and Platform SDK offer a similar API (e.g. windowing, app lifecycle, AI/speech), prefer the WinAppSDK version.
+- For voice and chat features, inspect the sample repositories first to model token streaming and audio pipeline callbacks correctly.
 
 
