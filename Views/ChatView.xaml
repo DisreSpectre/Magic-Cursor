@@ -1,0 +1,958 @@
+<UserControl
+    x:Class="MagicCursor.Views.ChatView"
+    x:Name="RootChatView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:MagicCursor.Views"
+    xmlns:vm="using:MagicCursor.ViewModels"
+    xmlns:markdown="using:CommunityToolkit.WinUI.UI.Controls"
+    RequestedTheme="Dark"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Views/ChatTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- History Header Template -->
+            <DataTemplate x:Key="SessionHeaderTemplate" x:DataType="vm:SessionListEntryViewModel">
+                <TextBlock
+                    Margin="8,12,8,4"
+                    FontSize="{StaticResource ChatFontSizeCaption}"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource ChatTextMutedBrush}"
+                    Text="{x:Bind HeaderText}" />
+            </DataTemplate>
+
+            <!-- History Session Item Template -->
+            <DataTemplate x:Key="SessionItemTemplate" x:DataType="vm:SessionListEntryViewModel">
+                <Grid
+                    Height="36"
+                    Padding="4,2"
+                    ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left Selection Accent Bar -->
+                    <Border
+                        Grid.Column="0"
+                        Background="{ThemeResource ChatAccentBrush}"
+                        CornerRadius="1"
+                        Visibility="{x:Bind local:ChatView.GetAccentBarVisibility(IsSelected), Mode=OneWay}" />
+
+                    <!-- Session Title and Date (Display Mode) -->
+                    <Grid
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Visibility="{x:Bind local:ChatView.GetNormalVisibility(IsRenaming), Mode=OneWay}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            FontSize="{StaticResource ChatFontSizeBody}"
+                            Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                            Text="{x:Bind Title, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                        <TextBlock
+                            Grid.Row="1"
+                            FontSize="{StaticResource ChatFontSizeCaption}"
+                            Foreground="{ThemeResource ChatTextMutedBrush}"
+                            Text="{x:Bind DateText, Mode=OneWay}" />
+                    </Grid>
+
+                    <!-- Inline Rename TextBox (Edit Mode) -->
+                    <TextBox
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        FontSize="{StaticResource ChatFontSizeBody}"
+                        KeyDown="RenameTextBox_KeyDown"
+                        LostFocus="RenameTextBox_LostFocus"
+                        Text="{x:Bind Title, Mode=TwoWay}"
+                        Visibility="{x:Bind local:ChatView.GetRenameVisibility(IsRenaming), Mode=OneWay}" />
+
+                    <!-- Action Buttons on Hover/Focus -->
+                    <StackPanel
+                        Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="2"
+                        VerticalAlignment="Center"
+                        Visibility="{x:Bind local:ChatView.GetNormalVisibility(IsRenaming), Mode=OneWay}">
+                        <Button
+                            AutomationProperties.Name="Rename session"
+                            Click="RenameSessionButton_Click"
+                            Style="{StaticResource ChatSmallActionButtonStyle}"
+                            ToolTipService.ToolTip="Rename">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="12"
+                                Glyph="&#xE70F;" />
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="Delete session"
+                            Click="DeleteSessionButton_Click"
+                            Style="{StaticResource ChatSmallActionButtonStyle}"
+                            ToolTipService.ToolTip="Delete">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="12"
+                                Glyph="&#xE74D;" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <!-- Template Selector for Session History -->
+            <local:SessionEntryTemplateSelector
+                x:Key="SessionEntryTemplateSelector"
+                HeaderTemplate="{StaticResource SessionHeaderTemplate}"
+                SessionTemplate="{StaticResource SessionItemTemplate}" />
+
+            <!-- Single Message Template -->
+            <DataTemplate x:Key="MessageItemTemplate" x:DataType="vm:ChatMessageViewModel">
+                <Grid Margin="0,4">
+                    <!-- User Message Layout -->
+                    <StackPanel
+                        HorizontalAlignment="Right"
+                        Margin="48,0,0,0"
+                        Spacing="4"
+                        Visibility="{x:Bind local:ChatView.GetUserVisibility(IsUser), Mode=OneWay}">
+                        
+                        <!-- Thumbnail Pill if attached -->
+                        <Button
+                            AutomationProperties.Name="Attached thumbnail preview"
+                            Click="ThumbnailButton_Click"
+                            CornerRadius="{StaticResource ChatCornerRadiusPill}"
+                            Padding="4"
+                            Style="{StaticResource ChatPillButtonStyle}"
+                            ToolTipService.ToolTip="Click to preview image"
+                            Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(HasThumbnail), Mode=OneWay}">
+                            <StackPanel
+                                Orientation="Horizontal"
+                                Spacing="6"
+                                VerticalAlignment="Center">
+                                <Image
+                                    Width="56"
+                                    Height="40"
+                                    Source="{x:Bind Thumbnail, Mode=OneWay}"
+                                    Stretch="UniformToFill" />
+                                <TextBlock
+                                    FontSize="{StaticResource ChatFontSizeCaption}"
+                                    Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                                    Text="{x:Bind ThumbnailLabel, Mode=OneWay}"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    FontSize="{StaticResource ChatFontSizeCaption}"
+                                    Foreground="{ThemeResource ChatTextMutedBrush}"
+                                    Text="(preview only)"
+                                    ToolTipService.ToolTip="Full image unavailable"
+                                    VerticalAlignment="Center"
+                                    Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(IsFullImageUnavailable), Mode=OneWay}" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- User Bubble -->
+                        <Border
+                            Background="{ThemeResource ChatUserBubbleBrush}"
+                            CornerRadius="{StaticResource ChatCornerRadiusUserBubble}"
+                            Padding="12,8">
+                            <TextBlock
+                                FontSize="{StaticResource ChatFontSizeBody}"
+                                Foreground="{ThemeResource ChatUserBubbleTextBrush}"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind Text, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </Border>
+
+                        <!-- Timestamp -->
+                        <TextBlock
+                            HorizontalAlignment="Right"
+                            FontSize="{StaticResource ChatFontSizeCaption}"
+                            Foreground="{ThemeResource ChatTextMutedBrush}"
+                            Text="{x:Bind TimestampText, Mode=OneWay}" />
+                    </StackPanel>
+
+                    <!-- Assistant Message Layout -->
+                    <StackPanel
+                        HorizontalAlignment="Left"
+                        Margin="0,0,24,0"
+                        Spacing="4"
+                        Visibility="{x:Bind local:ChatView.GetAssistantVisibility(IsUser), Mode=OneWay}">
+                        
+                        <!-- Voice Turn Cue -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(IsVoiceTurn), Mode=OneWay}">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="12"
+                                Foreground="{ThemeResource ChatAccentBrush}"
+                                Glyph="&#xE720;" />
+                            <TextBlock
+                                FontSize="{StaticResource ChatFontSizeCaption}"
+                                Foreground="{ThemeResource ChatTextMutedBrush}"
+                                Text="Voice turn" />
+                        </StackPanel>
+
+                        <!-- Assistant Bubble -->
+                        <Border
+                            Background="{ThemeResource ChatAssistantBubbleBrush}"
+                            BorderBrush="{ThemeResource ChatDividerBrush}"
+                            BorderThickness="{StaticResource ChatBorderThickness}"
+                            CornerRadius="{StaticResource ChatCornerRadiusAssistantBubble}"
+                            Padding="12,8">
+                            <StackPanel Spacing="6">
+                                <!-- Markdown Content -->
+                                <markdown:MarkdownTextBlock
+                                    Background="{ThemeResource ChatCodeBackgroundBrush}"
+                                    FontFamily="{StaticResource ChatFontFamily}"
+                                    FontSize="{StaticResource ChatFontSizeBody}"
+                                    Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                                    LinkForeground="{ThemeResource ChatLinkBrush}"
+                                    Text="{x:Bind Text, Mode=OneWay}" />
+
+                                <!-- 3-Dot Typing Indicator when streaming with empty text -->
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Spacing="4"
+                                    Visibility="{x:Bind local:ChatView.GetTypingIndicatorVisibility(IsStreaming, Text), Mode=OneWay}">
+                                    <Ellipse Width="6" Height="6" Fill="{ThemeResource ChatAccentBrush}" Opacity="0.8" />
+                                    <Ellipse Width="6" Height="6" Fill="{ThemeResource ChatAccentBrush}" Opacity="0.5" />
+                                    <Ellipse Width="6" Height="6" Fill="{ThemeResource ChatAccentBrush}" Opacity="0.3" />
+                                </StackPanel>
+
+                                <!-- Streaming Hairline Progress -->
+                                <ProgressBar
+                                    Height="2"
+                                    IsIndeterminate="True"
+                                    Visibility="{x:Bind local:ChatView.GetStreamingProgressVisibility(IsStreaming, Text), Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Assistant Action Row & Timestamp -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel
+                                Grid.Column="0"
+                                Orientation="Horizontal"
+                                Spacing="4">
+                                <Button
+                                    AutomationProperties.Name="Copy message"
+                                    Click="CopyMessageButton_Click"
+                                    Style="{StaticResource ChatSmallActionButtonStyle}"
+                                    ToolTipService.ToolTip="Copy">
+                                    <FontIcon
+                                        FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                        FontSize="12"
+                                        Glyph="&#xE8C8;" />
+                                </Button>
+                                <Button
+                                    AutomationProperties.Name="Regenerate response"
+                                    Click="RegenerateButton_Click"
+                                    Style="{StaticResource ChatSmallActionButtonStyle}"
+                                    ToolTipService.ToolTip="Regenerate"
+                                    Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(IsLastAssistant), Mode=OneWay}">
+                                    <FontIcon
+                                        FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                        FontSize="12"
+                                        Glyph="&#xE72C;" />
+                                </Button>
+                            </StackPanel>
+
+                            <TextBlock
+                                Grid.Column="1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                FontSize="{StaticResource ChatFontSizeCaption}"
+                                Foreground="{ThemeResource ChatTextMutedBrush}"
+                                Text="{x:Bind TimestampText, Mode=OneWay}" />
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!-- Root Container with Nord Translucent Tint -->
+    <Grid x:Name="ContentRoot" Background="{ThemeResource ChatTintBrush}">
+        <Grid.RenderTransform>
+            <TranslateTransform x:Name="ContentRootTransform" X="0" />
+        </Grid.RenderTransform>
+
+        <VisualStateManager.VisualStateGroups>
+            <!-- Group 1: History Pane States -->
+            <VisualStateGroup x:Name="HistoryStates">
+                <VisualState x:Name="HistoryClosed">
+                    <Storyboard>
+                        <DoubleAnimation
+                            Storyboard.TargetName="HistoryPaneTransform"
+                            Storyboard.TargetProperty="X"
+                            To="-240"
+                            Duration="0:0:0.18" />
+                        <DoubleAnimation
+                            Storyboard.TargetName="HistoryScrim"
+                            Storyboard.TargetProperty="Opacity"
+                            To="0"
+                            Duration="0:0:0.18" />
+                    </Storyboard>
+                </VisualState>
+                <VisualState x:Name="HistoryOpen">
+                    <Storyboard>
+                        <DoubleAnimation
+                            Storyboard.TargetName="HistoryPaneTransform"
+                            Storyboard.TargetProperty="X"
+                            To="0"
+                            Duration="0:0:0.2" />
+                        <DoubleAnimation
+                            Storyboard.TargetName="HistoryScrim"
+                            Storyboard.TargetProperty="Opacity"
+                            To="1"
+                            Duration="0:0:0.2" />
+                    </Storyboard>
+                </VisualState>
+            </VisualStateGroup>
+
+            <!-- Group 2: Dock States -->
+            <VisualStateGroup x:Name="DockStates">
+                <VisualState x:Name="TextState">
+                    <Storyboard>
+                        <DoubleAnimation
+                            Storyboard.TargetName="TextDockPanel"
+                            Storyboard.TargetProperty="Opacity"
+                            To="1"
+                            Duration="0:0:0.15" />
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="TextDockPanel" Storyboard.TargetProperty="Visibility">
+                            <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="Visible" />
+                        </ObjectAnimationUsingKeyFrames>
+                        <DoubleAnimation
+                            Storyboard.TargetName="VoiceDockPanel"
+                            Storyboard.TargetProperty="Opacity"
+                            To="0"
+                            Duration="0:0:0.15" />
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VoiceDockPanel" Storyboard.TargetProperty="Visibility">
+                            <DiscreteObjectKeyFrame KeyTime="0:0:0.15" Value="Collapsed" />
+                        </ObjectAnimationUsingKeyFrames>
+                    </Storyboard>
+                </VisualState>
+                <VisualState x:Name="VoiceState">
+                    <Storyboard>
+                        <DoubleAnimation
+                            Storyboard.TargetName="VoiceDockPanel"
+                            Storyboard.TargetProperty="Opacity"
+                            To="1"
+                            Duration="0:0:0.15" />
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VoiceDockPanel" Storyboard.TargetProperty="Visibility">
+                            <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="Visible" />
+                        </ObjectAnimationUsingKeyFrames>
+                        <DoubleAnimation
+                            Storyboard.TargetName="TextDockPanel"
+                            Storyboard.TargetProperty="Opacity"
+                            To="0"
+                            Duration="0:0:0.15" />
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="TextDockPanel" Storyboard.TargetProperty="Visibility">
+                            <DiscreteObjectKeyFrame KeyTime="0:0:0.15" Value="Collapsed" />
+                        </ObjectAnimationUsingKeyFrames>
+                    </Storyboard>
+                </VisualState>
+            </VisualStateGroup>
+
+            <!-- Group 3: Voice Activity States -->
+            <VisualStateGroup x:Name="VoiceActivityStates">
+                <VisualState x:Name="IdleState" />
+                <VisualState x:Name="ConnectingState" />
+                <VisualState x:Name="ListeningState" />
+                <VisualState x:Name="SpeakingState" />
+                <VisualState x:Name="MutedState" />
+                <VisualState x:Name="ReconnectingState" />
+                <VisualState x:Name="ErrorState" />
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
+        <!-- Keyboard Accelerators -->
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewChatAccelerator_Invoked" />
+            <KeyboardAccelerator Key="H" Modifiers="Control" Invoked="HistoryAccelerator_Invoked" />
+            <KeyboardAccelerator Key="Escape" Invoked="EscapeAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
+
+        <Grid.RowDefinitions>
+            <!-- 5.1 Header Row / Custom Title Bar -->
+            <RowDefinition Height="48" />
+            <!-- 5.3 Conversation Thread & 5.2 History Pane -->
+            <RowDefinition Height="*" />
+            <!-- 5.4 Error InfoBar -->
+            <RowDefinition Height="Auto" />
+            <!-- 5.5 Bottom Dock -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- =================== HEADER (5.1) =================== -->
+        <Grid
+            x:Name="AppTitleBar"
+            Grid.Row="0"
+            Height="48"
+            Padding="12,0"
+            BorderBrush="{ThemeResource ChatDividerBrush}"
+            BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: History Toggle Button -->
+            <Button
+                Grid.Column="0"
+                AutomationProperties.Name="Toggle history pane"
+                Command="{x:Bind ViewModel.ToggleHistoryCommand}"
+                Style="{StaticResource ChatIconButtonStyle}"
+                ToolTipService.ToolTip="Chat history (Ctrl+H)">
+                <FontIcon
+                    FontFamily="{StaticResource SymbolThemeFontFamily}"
+                    FontSize="16"
+                    Glyph="&#xE81C;" />
+            </Button>
+
+            <!-- Center: Title and Model Badge -->
+            <StackPanel
+                Grid.Column="1"
+                HorizontalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8"
+                VerticalAlignment="Center">
+                <TextBlock
+                    FontSize="{StaticResource ChatFontSizeTitle}"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                    Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis" />
+                
+                <Border
+                    Background="{ThemeResource ChatSurfaceBrush}"
+                    BorderBrush="{ThemeResource ChatDividerBrush}"
+                    BorderThickness="{StaticResource ChatBorderThickness}"
+                    CornerRadius="{StaticResource ChatCornerRadiusPill}"
+                    Padding="6,2">
+                    <TextBlock
+                        FontSize="{StaticResource ChatFontSizeCaption}"
+                        Foreground="{ThemeResource ChatTextMutedBrush}"
+                        Text="{x:Bind ViewModel.ModelBadge, Mode=OneWay}" />
+                </Border>
+
+                <!-- Mic Live Indicator -->
+                <StackPanel
+                    x:Name="MicLiveIndicator"
+                    Orientation="Horizontal"
+                    Spacing="4"
+                    VerticalAlignment="Center"
+                    Visibility="{x:Bind local:ChatView.GetMicLiveVisibility(ViewModel.IsVoiceMode, ViewModel.IsMicMuted), Mode=OneWay}">
+                    <Ellipse
+                        Width="8"
+                        Height="8"
+                        Fill="{ThemeResource ChatAccentBrush}" />
+                    <TextBlock
+                        FontSize="{StaticResource ChatFontSizeCaption}"
+                        Foreground="{ThemeResource ChatAccentBrush}"
+                        Text="Mic live" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Right: New Chat and Close Buttons -->
+            <StackPanel
+                Grid.Column="2"
+                Orientation="Horizontal"
+                Spacing="4"
+                VerticalAlignment="Center">
+                <Button
+                    AutomationProperties.Name="Start new chat"
+                    Command="{x:Bind ViewModel.NewChatCommand}"
+                    Style="{StaticResource ChatIconButtonStyle}"
+                    ToolTipService.ToolTip="New chat (Ctrl+N)">
+                    <FontIcon
+                        FontFamily="{StaticResource SymbolThemeFontFamily}"
+                        FontSize="16"
+                        Glyph="&#xE710;" />
+                </Button>
+                <Button
+                    AutomationProperties.Name="Close chat drawer"
+                    Command="{x:Bind ViewModel.CloseCommand}"
+                    Style="{StaticResource ChatIconButtonStyle}"
+                    ToolTipService.ToolTip="Close (Esc)">
+                    <FontIcon
+                        FontFamily="{StaticResource SymbolThemeFontFamily}"
+                        FontSize="14"
+                        Glyph="&#xE8BB;" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- =================== THREAD & HISTORY OVERLAY (5.2, 5.3) =================== -->
+        <Grid Grid.Row="1">
+            <!-- 5.3 Main Messages Thread -->
+            <ListView
+                x:Name="MessagesListView"
+                ItemContainerStyle="{StaticResource ChatMessageItemContainerStyle}"
+                ItemTemplate="{StaticResource MessageItemTemplate}"
+                ItemsSource="{x:Bind ViewModel.Messages, Mode=OneWay}"
+                Padding="16,8"
+                SelectionMode="None">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsStackPanel ItemsUpdatingScrollMode="KeepLastItemInView" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+            </ListView>
+
+            <!-- Empty Thread State -->
+            <StackPanel
+                x:Name="ThreadEmptyState"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Margin="32"
+                Spacing="8"
+                Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(ViewModel.IsThreadEmpty), Mode=OneWay}">
+                <FontIcon
+                    HorizontalAlignment="Center"
+                    FontFamily="{StaticResource SymbolThemeFontFamily}"
+                    FontSize="36"
+                    Foreground="{ThemeResource ChatAccentBrush}"
+                    Glyph="&#xE8D2;" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    FontSize="{StaticResource ChatFontSizeTitle}"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                    Text="Ask anything" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    FontSize="{StaticResource ChatFontSizeCaption}"
+                    Foreground="{ThemeResource ChatTextMutedBrush}"
+                    Text="Shake your cursor and drag over your screen to attach it."
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- 5.2 History Pane Scrim Layer -->
+            <Border
+                x:Name="HistoryScrim"
+                Background="{ThemeResource ChatScrimBrush}"
+                IsHitTestVisible="False"
+                Opacity="0"
+                PointerPressed="HistoryScrim_PointerPressed" />
+
+            <!-- 5.2 Slide-in History Pane -->
+            <Border
+                x:Name="HistoryPane"
+                Width="240"
+                HorizontalAlignment="Left"
+                Background="{ThemeResource ChatSurfaceBrush}"
+                BorderBrush="{ThemeResource ChatDividerBrush}"
+                BorderThickness="0,0,1,0"
+                IsHitTestVisible="False">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="HistoryPaneTransform" X="-240" />
+                </Border.RenderTransform>
+
+                <Grid Padding="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock
+                        Grid.Row="0"
+                        Margin="8,4,8,8"
+                        FontSize="{StaticResource ChatFontSizeTitle}"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                        Text="Chat History" />
+
+                    <!-- Sessions List -->
+                    <ListView
+                        x:Name="SessionListView"
+                        Grid.Row="1"
+                        IsItemClickEnabled="True"
+                        ItemClick="SessionListView_ItemClick"
+                        ItemContainerStyle="{StaticResource ChatSessionItemContainerStyle}"
+                        ItemTemplateSelector="{StaticResource SessionEntryTemplateSelector}"
+                        ItemsSource="{x:Bind ViewModel.SessionList, Mode=OneWay}"
+                        SelectionMode="None" />
+
+                    <!-- Empty Sessions State -->
+                    <TextBlock
+                        Grid.Row="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        FontSize="{StaticResource ChatFontSizeCaption}"
+                        Foreground="{ThemeResource ChatTextMutedBrush}"
+                        Text="No conversations yet"
+                        Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(ViewModel.IsSessionListEmpty), Mode=OneWay}" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- =================== ERROR INFOBAR (5.4) =================== -->
+        <InfoBar
+            x:Name="ErrorInfoBar"
+            Grid.Row="2"
+            Margin="12,4"
+            CloseButtonClick="ErrorInfoBar_CloseButtonClick"
+            IsOpen="{x:Bind ViewModel.IsErrorVisible, Mode=TwoWay}"
+            Message="{x:Bind ViewModel.ErrorText, Mode=OneWay}"
+            Severity="Error" />
+
+        <!-- =================== BOTTOM DOCK (5.5) =================== -->
+        <Grid
+            Grid.Row="3"
+            Padding="12,8,12,12"
+            BorderBrush="{ThemeResource ChatDividerBrush}"
+            BorderThickness="0,1,0,0">
+
+            <!-- STATE A: TEXT INPUT -->
+            <StackPanel
+                x:Name="TextDockPanel"
+                Spacing="8"
+                Visibility="Visible">
+
+                <!-- Staged Image Chip -->
+                <Border
+                    x:Name="StagedImageChip"
+                    HorizontalAlignment="Left"
+                    Background="{ThemeResource ChatSurfaceBrush}"
+                    BorderBrush="{ThemeResource ChatDividerBrush}"
+                    BorderThickness="{StaticResource ChatBorderThickness}"
+                    CornerRadius="{StaticResource ChatCornerRadiusPill}"
+                    Padding="6,4"
+                    Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(ViewModel.HasStagedImage), Mode=OneWay}">
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="6"
+                        VerticalAlignment="Center">
+                        <Image
+                            Width="32"
+                            Height="32"
+                            Source="{x:Bind ViewModel.StagedThumbnail, Mode=OneWay}"
+                            Stretch="UniformToFill" />
+                        <TextBlock
+                            FontSize="{StaticResource ChatFontSizeCaption}"
+                            Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                            Text="{x:Bind ViewModel.StagedLabel, Mode=OneWay}"
+                            VerticalAlignment="Center" />
+                        <Button
+                            AutomationProperties.Name="Remove staged image"
+                            Command="{x:Bind ViewModel.RemoveStagedImageCommand}"
+                            Style="{StaticResource ChatSmallActionButtonStyle}"
+                            ToolTipService.ToolTip="Remove image">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="12"
+                                Glyph="&#xE711;" />
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- Input Row -->
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox
+                        x:Name="ChatInputBox"
+                        Grid.Column="0"
+                        AcceptsReturn="True"
+                        CornerRadius="{StaticResource ChatCornerRadiusInput}"
+                        FontSize="{StaticResource ChatFontSizeBody}"
+                        KeyDown="ChatInputBox_KeyDown"
+                        MaxHeight="140"
+                        PlaceholderText="Ask a follow-up, or capture your screen..."
+                        Text="{x:Bind ViewModel.InputText, Mode=TwoWay}"
+                        TextWrapping="Wrap" />
+
+                    <!-- Action Buttons beside input -->
+                    <StackPanel
+                        Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Bottom">
+                        <!-- Capture Region -->
+                        <Button
+                            AutomationProperties.Name="Capture screen region"
+                            Command="{x:Bind ViewModel.CaptureRegionCommand}"
+                            Style="{StaticResource ChatIconButtonStyle}"
+                            ToolTipService.ToolTip="Capture screen region">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="16"
+                                Glyph="&#xE722;" />
+                        </Button>
+
+                        <!-- Start Voice Mode -->
+                        <Button
+                            AutomationProperties.Name="Start voice mode"
+                            Command="{x:Bind ViewModel.StartVoiceCommand}"
+                            Style="{StaticResource ChatIconButtonStyle}"
+                            ToolTipService.ToolTip="Voice mode">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="16"
+                                Glyph="&#xE720;" />
+                        </Button>
+
+                        <!-- Send / Stop Button Swap -->
+                        <Grid>
+                            <!-- Send Button (When not busy) -->
+                            <Button
+                                x:Name="SendButton"
+                                AutomationProperties.Name="Send message"
+                                Command="{x:Bind ViewModel.SendCommand}"
+                                IsEnabled="{x:Bind ViewModel.CanSend, Mode=OneWay}"
+                                Style="{StaticResource ChatSendButtonStyle}"
+                                ToolTipService.ToolTip="Send"
+                                Visibility="{x:Bind local:ChatView.GetSendButtonVisibility(ViewModel.IsBusy), Mode=OneWay}">
+                                <FontIcon
+                                    FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                    FontSize="14"
+                                    Glyph="&#xE724;" />
+                            </Button>
+
+                            <!-- Stop Button (When busy) -->
+                            <Button
+                                x:Name="StopButton"
+                                AutomationProperties.Name="Cancel generation"
+                                Command="{x:Bind ViewModel.CancelGenerationCommand}"
+                                Style="{StaticResource ChatStopButtonStyle}"
+                                ToolTipService.ToolTip="Stop generation"
+                                Visibility="{x:Bind local:ChatView.GetStopButtonVisibility(ViewModel.IsBusy), Mode=OneWay}">
+                                <FontIcon
+                                    FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                    FontSize="14"
+                                    Glyph="&#xE71A;" />
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <!-- STATE B: VOICE MODE (LIVE AUDIO BAR) -->
+            <StackPanel
+                x:Name="VoiceDockPanel"
+                Opacity="0"
+                Spacing="8"
+                Visibility="Collapsed">
+
+                <!-- Headphone notice InfoBar -->
+                <InfoBar
+                    x:Name="HeadphoneNoticeInfoBar"
+                    CloseButtonClick="HeadphoneNoticeInfoBar_CloseButtonClick"
+                    IsOpen="{x:Bind ViewModel.IsHeadphoneNoticeVisible, Mode=OneWay}"
+                    Message="Use headphones for hands-free voice, or switch to push-to-talk."
+                    Severity="Informational" />
+
+                <!-- Waveform & Live Audio Controls -->
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Waveform Bars -->
+                    <StackPanel
+                        Grid.Column="0"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                        <Rectangle
+                            x:Name="WaveBar1"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale1" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar2"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale2" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar3"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale3" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar4"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale4" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar5"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale5" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar6"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale6" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                        <Rectangle
+                            x:Name="WaveBar7"
+                            Width="4"
+                            Height="24"
+                            Fill="{ThemeResource ChatAccentBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            RenderTransformOrigin="0.5,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="WaveScale7" ScaleY="0.2" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                    </StackPanel>
+
+                    <!-- Status Text -->
+                    <TextBlock
+                        x:Name="VoiceStatusTextBlock"
+                        Grid.Column="1"
+                        AutomationProperties.LiveSetting="Polite"
+                        FontSize="{StaticResource ChatFontSizeBody}"
+                        Foreground="{ThemeResource ChatTextPrimaryBrush}"
+                        Text="{x:Bind ViewModel.VoiceStatusText, Mode=OneWay}"
+                        VerticalAlignment="Center" />
+
+                    <!-- Voice Controls -->
+                    <StackPanel
+                        Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                        
+                        <!-- Push To Talk Button (visible when in PTT mode) -->
+                        <Button
+                            x:Name="PushToTalkButton"
+                            AutomationProperties.Name="Hold to talk"
+                            Content="Hold to talk"
+                            KeyDown="PushToTalkButton_KeyDown"
+                            KeyUp="PushToTalkButton_KeyUp"
+                            PointerCanceled="PushToTalkButton_PointerCanceled"
+                            PointerCaptureLost="PushToTalkButton_PointerCaptureLost"
+                            PointerPressed="PushToTalkButton_PointerPressed"
+                            PointerReleased="PushToTalkButton_PointerReleased"
+                            Style="{StaticResource ChatPushToTalkButtonStyle}"
+                            Visibility="{x:Bind local:ChatView.GetThumbnailVisibility(ViewModel.IsPushToTalk), Mode=OneWay}" />
+
+                        <!-- Mode Selector DropDown -->
+                        <DropDownButton
+                            AutomationProperties.Name="Voice input mode selector"
+                            Content="Mode">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout>
+                                    <RadioMenuFlyoutItem
+                                        Click="VoiceModeOpenMic_Click"
+                                        IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 0), Mode=OneWay}"
+                                        Text="Open mic" />
+                                    <RadioMenuFlyoutItem
+                                        Click="VoiceModePtt_Click"
+                                        IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 1), Mode=OneWay}"
+                                        Text="Push-to-talk" />
+                                    <RadioMenuFlyoutItem
+                                        Click="VoiceModeAutoMute_Click"
+                                        IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 2), Mode=OneWay}"
+                                        Text="Auto-mute while AI speaks" />
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+
+                        <!-- Mute / Unmute Button -->
+                        <Button
+                            AutomationProperties.Name="Toggle microphone mute"
+                            Command="{x:Bind ViewModel.ToggleMuteCommand}"
+                            Style="{StaticResource ChatIconButtonStyle}"
+                            ToolTipService.ToolTip="Mute / Unmute">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="16"
+                                Glyph="{x:Bind local:ChatView.GetMuteGlyph(ViewModel.IsMicMuted), Mode=OneWay}" />
+                        </Button>
+
+                        <!-- Interrupt Button -->
+                        <Button
+                            AutomationProperties.Name="Interrupt AI response"
+                            Command="{x:Bind ViewModel.InterruptCommand}"
+                            Style="{StaticResource ChatIconButtonStyle}"
+                            ToolTipService.ToolTip="Interrupt">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="14"
+                                Glyph="&#xE71A;" />
+                        </Button>
+
+                        <!-- Exit Voice Button -->
+                        <Button
+                            AutomationProperties.Name="Exit voice mode"
+                            Command="{x:Bind ViewModel.ExitVoiceCommand}"
+                            Style="{StaticResource ChatIconButtonStyle}"
+                            ToolTipService.ToolTip="Exit voice">
+                            <FontIcon
+                                FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                FontSize="14"
+                                Glyph="&#xE8BB;" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>
