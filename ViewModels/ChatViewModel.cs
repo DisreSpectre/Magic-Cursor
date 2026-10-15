@@ -217,6 +217,7 @@ public partial class ChatViewModel : ObservableObject
 
         VoiceStatusText = "Ready";
         AudioLevel = 0.4;
+        IsHeadphoneNoticeVisible = true;
     }
 #endif
 }

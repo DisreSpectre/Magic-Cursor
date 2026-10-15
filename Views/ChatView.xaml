@@ -212,7 +212,8 @@
                             <StackPanel Spacing="6">
                                 <!-- Markdown Content -->
                                 <markdown:MarkdownTextBlock
-                                    Background="{ThemeResource ChatCodeBackgroundBrush}"
+                                    Background="Transparent"
+                                    CodeBackground="{ThemeResource ChatCodeBackgroundBrush}"
                                     FontFamily="{StaticResource ChatFontFamily}"
                                     FontSize="{StaticResource ChatFontSizeBody}"
                                     Foreground="{ThemeResource ChatTextPrimaryBrush}"
@@ -295,6 +296,10 @@
             <!-- Group 1: History Pane States -->
             <VisualStateGroup x:Name="HistoryStates">
                 <VisualState x:Name="HistoryClosed">
+                    <VisualState.Setters>
+                        <Setter Target="HistoryPane.IsHitTestVisible" Value="False" />
+                        <Setter Target="HistoryScrim.IsHitTestVisible" Value="False" />
+                    </VisualState.Setters>
                     <Storyboard>
                         <DoubleAnimation
                             Storyboard.TargetName="HistoryPaneTransform"
@@ -309,6 +314,10 @@
                     </Storyboard>
                 </VisualState>
                 <VisualState x:Name="HistoryOpen">
+                    <VisualState.Setters>
+                        <Setter Target="HistoryPane.IsHitTestVisible" Value="True" />
+                        <Setter Target="HistoryScrim.IsHitTestVisible" Value="True" />
+                    </VisualState.Setters>
                     <Storyboard>
                         <DoubleAnimation
                             Storyboard.TargetName="HistoryPaneTransform"
@@ -676,10 +685,10 @@
                         AcceptsReturn="True"
                         CornerRadius="{StaticResource ChatCornerRadiusInput}"
                         FontSize="{StaticResource ChatFontSizeBody}"
-                        KeyDown="ChatInputBox_KeyDown"
+                        PreviewKeyDown="ChatInputBox_KeyDown"
                         MaxHeight="140"
                         PlaceholderText="Ask a follow-up, or capture your screen..."
-                        Text="{x:Bind ViewModel.InputText, Mode=TwoWay}"
+                        Text="{x:Bind ViewModel.InputText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                         TextWrapping="Wrap" />
 
                     <!-- Action Buttons beside input -->
@@ -758,7 +767,7 @@
                 <InfoBar
                     x:Name="HeadphoneNoticeInfoBar"
                     CloseButtonClick="HeadphoneNoticeInfoBar_CloseButtonClick"
-                    IsOpen="{x:Bind ViewModel.IsHeadphoneNoticeVisible, Mode=OneWay}"
+                    IsOpen="{x:Bind ViewModel.IsHeadphoneNoticeVisible, Mode=TwoWay}"
                     Message="Use headphones for hands-free voice, or switch to push-to-talk."
                     Severity="Informational" />
 
@@ -900,14 +909,17 @@
                             <DropDownButton.Flyout>
                                 <MenuFlyout>
                                     <RadioMenuFlyoutItem
+                                        GroupName="VoiceInputMode"
                                         Click="VoiceModeOpenMic_Click"
                                         IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 0), Mode=OneWay}"
                                         Text="Open mic" />
                                     <RadioMenuFlyoutItem
+                                        GroupName="VoiceInputMode"
                                         Click="VoiceModePtt_Click"
                                         IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 1), Mode=OneWay}"
                                         Text="Push-to-talk" />
                                     <RadioMenuFlyoutItem
+                                        GroupName="VoiceInputMode"
                                         Click="VoiceModeAutoMute_Click"
                                         IsChecked="{x:Bind local:ChatView.GetModeChecked(ViewModel.VoiceInputMode, 2), Mode=OneWay}"
                                         Text="Auto-mute while AI speaks" />

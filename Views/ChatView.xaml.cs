@@ -25,16 +25,34 @@ public sealed partial class ChatView : UserControl
         ViewModel = App.Services.GetRequiredService<ChatViewModel>();
         this.DataContext = ViewModel;
 
-        ViewModel.PropertyChanged += ViewModel_PropertyChanged;
-        ViewModel.ScrollToBottomRequested += ViewModel_ScrollToBottomRequested;
-        ViewModel.FocusInputRequested += ViewModel_FocusInputRequested;
-
         this.Loaded += ChatView_Loaded;
+        this.Unloaded += ChatView_Unloaded;
     }
 
     private void ChatView_Loaded(object sender, RoutedEventArgs e)
     {
         PlayEnter();
+
+        // Idempotent event subscriptions (-= then +=) to prevent duplicate delegates
+        ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+        ViewModel.ScrollToBottomRequested -= ViewModel_ScrollToBottomRequested;
+        ViewModel.ScrollToBottomRequested += ViewModel_ScrollToBottomRequested;
+
+        ViewModel.FocusInputRequested -= ViewModel_FocusInputRequested;
+        ViewModel.FocusInputRequested += ViewModel_FocusInputRequested;
+
+        // Re-sync visual states in case properties changed while unloaded
+        VisualStateManager.GoToState(this, ViewModel.IsVoiceMode ? "VoiceState" : "TextState", false);
+        VisualStateManager.GoToState(this, ViewModel.IsHistoryOpen ? "HistoryOpen" : "HistoryClosed", false);
+    }
+
+    private void ChatView_Unloaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        ViewModel.ScrollToBottomRequested -= ViewModel_ScrollToBottomRequested;
+        ViewModel.FocusInputRequested -= ViewModel_FocusInputRequested;
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
