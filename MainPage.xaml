@@ -199,7 +199,7 @@
                     </Border>
 
                     <!-- Feature 1 -->
-                    <Button Click="AnalyzeButton_Click" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" CornerRadius="6">
+                    <Button x:Name="AnalyzeButton" Click="AnalyzeButton_Click" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" CornerRadius="6">
                         <StackPanel Orientation="Horizontal">
                             <FontIcon Glyph="&#xE8D2;" FontSize="16" Margin="0,0,12,0" Foreground="#00BFFF"/>
                             <TextBlock Text="Analyze Selection" FontSize="13" Foreground="White"/>
@@ -207,7 +207,7 @@
                     </Button>
                     
                     <!-- Feature 2 -->
-                    <Button Click="SummarizeButton_Click" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" CornerRadius="6">
+                    <Button x:Name="SummarizeButton" Click="SummarizeButton_Click" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" CornerRadius="6">
                         <StackPanel Orientation="Horizontal">
                             <FontIcon Glyph="&#xE71F;" FontSize="16" Margin="0,0,12,0" Foreground="#7B68EE"/>
                             <TextBlock Text="Summarize" FontSize="13" Foreground="White"/>

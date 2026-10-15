@@ -23,11 +23,15 @@ public sealed partial class MainWindow : WindowEx
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_LAYERED = 0x80000;
     private const int WS_EX_TRANSPARENT = 0x20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     private const uint SWP_NOSIZE = 0x0001;
@@ -49,6 +53,13 @@ public sealed partial class MainWindow : WindowEx
     {
         var hWnd = this.GetWindowHandle();
 
+        // Exclude window from screenshots/captures so cursor, sparkles, and menu do not appear in captured images
+        if (!SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE))
+        {
+            int err = Marshal.GetLastWin32Error();
+            Log.Warning($"SetWindowDisplayAffinity failed with error {err}");
+        }
+
         // Apply Win32 Extended Styles to make it click-through, layered, and a tool window (hides from Alt+Tab)
         int initialStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
         SetWindowLong(hWnd, GWL_EXSTYLE, initialStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
@@ -58,6 +69,11 @@ public sealed partial class MainWindow : WindowEx
 
         // Maximize the window to cover the screen
         this.Maximize();
+    }
+
+    public void PositionOnDisplay(DisplayArea displayArea)
+    {
+        this.AppWindow.MoveAndResize(displayArea.OuterBounds);
     }
 
     public IntPtr GetHWND()

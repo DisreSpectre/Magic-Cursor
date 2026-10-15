@@ -32,14 +32,33 @@ public partial class App : Application
     {
         this.InitializeComponent();
 
-        // Global crash handler
+        // Global crash handlers
         this.UnhandledException += App_UnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+        TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
     }
 
     private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        e.Handled = true; // Attempt to keep it alive to write the log
-        Log.Error("Unhandled exception", e.Exception);
+        Log.Error("Unhandled XAML exception", e.Exception);
+    }
+
+    private void CurrentDomain_UnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+        {
+            Log.Error($"Unhandled domain exception (terminating={e.IsTerminating})", ex);
+        }
+        else
+        {
+            Log.Error($"Unhandled domain exception (terminating={e.IsTerminating}): {e.ExceptionObject}");
+        }
+    }
+
+    private void TaskScheduler_UnobservedTaskException(object? sender, System.Threading.Tasks.UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Error("Unobserved task exception", e.Exception);
+        e.SetObserved();
     }
 
     /// <summary>

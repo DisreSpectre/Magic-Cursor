@@ -44,6 +44,9 @@ public sealed partial class MainPage : Page
     private string _capturedText = string.Empty;
     private byte[]? _capturedImageBytes = null;
     private SoftwareBitmap? _capturedBitmap = null;
+    private bool _isAiProcessing = false;
+    private string _lastRawResponseText = string.Empty;
+    private Windows.Graphics.RectInt32 _currentDisplayBounds = new(0, 0, 1920, 1080);
 
     // --- Cached OCR engine (avoids re-creation on every capture) ---
     private OcrEngine? _cachedOcrEngine;
@@ -56,6 +59,11 @@ public sealed partial class MainPage : Page
     // --- Pre-compiled regex for inline Markdown (reused per TextBlock) ---
     private static readonly System.Text.RegularExpressions.Regex InlineMarkdownRegex =
         new(@"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // --- Pre-compiled regex for visual keyword detection (word boundaries avoid false positives) ---
+    private static readonly System.Text.RegularExpressions.Regex VisualKeywordsRegex =
+        new(@"\b(color|colour|describe|look like|logo|diagram|chart|graph|image|picture|photo|drawing|screenshot|ui|layout|design|red|green|blue|yellow|white|black|button|icon|what is this|see|active|selected|checked|highlighted|focus|enabled|disabled|status|font|size|styled|shape|border|padding|margin|align)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // --- Pre-compiled regex for numbered list detection ---
     private static readonly System.Text.RegularExpressions.Regex NumberedListRegex =
@@ -123,7 +131,8 @@ public sealed partial class MainPage : Page
         InitializeComponent();
 
         var config = ConfigService.LoadConfig();
-        _geminiService = new GeminiService(config.GeminiApiKey);
+        string apiKey = ConfigService.GetApiKey(config);
+        _geminiService = new GeminiService(apiKey);
         _geminiService.UpdateModels(config.TextModel, config.ImageModel);
 
         if (!string.IsNullOrWhiteSpace(config.TextModel) && !_availableModels.Contains(config.TextModel))
@@ -173,13 +182,15 @@ public sealed partial class MainPage : Page
 
     private void MouseHook_OnShakeDetected(object? sender, ShakeEventArgs e)
     {
-        // Don't show menu if response modal or settings is open
-        if (ResponseModal.Visibility == Visibility.Visible || SettingsModal.Visibility == Visibility.Visible) return;
+        // Don't show menu if AI is processing, response modal is open, or settings is open
+        if (_isAiProcessing || ResponseModal.Visibility == Visibility.Visible || SettingsModal.Visibility == Visibility.Visible) return;
 
         DispatcherQueue.TryEnqueue(() =>
         {
             try 
             {
+                if (_isAiProcessing || ResponseModal.Visibility == Visibility.Visible || SettingsModal.Visibility == Visibility.Visible) return;
+
                 _hideTimer.Stop();
                 _isMenuActive = true;
                 _capturedText = string.Empty;
@@ -188,11 +199,17 @@ public sealed partial class MainPage : Page
                 _capturedBitmap = null;
                 _capturedImageBytes = null;
 
+                // Multi-monitor: detect display where shake occurred and reposition overlay window
+                var point = new Windows.Graphics.PointInt32(e.X, e.Y);
+                var display = Microsoft.UI.Windowing.DisplayArea.GetFromPoint(point, Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
+                _currentDisplayBounds = display.OuterBounds;
+                App.AppWindow.PositionOnDisplay(display);
+
                 IntPtr hwnd = App.AppWindow.GetHWND();
                 double scaleFactor = GetDpiForWindow(hwnd) / 96.0;
 
-                double logicalX = e.X / scaleFactor;
-                double logicalY = e.Y / scaleFactor;
+                double logicalX = (e.X - display.OuterBounds.X) / scaleFactor;
+                double logicalY = (e.Y - display.OuterBounds.Y) / scaleFactor;
 
                 AdjustMenuPosition(logicalX + 15, logicalY + 15);
                 
@@ -202,7 +219,7 @@ public sealed partial class MainPage : Page
 
                 App.AppWindow.SetClickThrough(false);
                 
-                // The ultimate WinUI 3 trick to completely hide the cursor:
+                // WinUI 3 trick to hide the cursor
                 var invisibleCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
                 invisibleCursor.Dispose();
                 this.ProtectedCursor = invisibleCursor;
@@ -256,7 +273,7 @@ public sealed partial class MainPage : Page
 
     private async void CustomQueryInput_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == Windows.System.VirtualKey.Enter && !string.IsNullOrWhiteSpace(CustomQueryInput.Text))
+        if (e.Key == Windows.System.VirtualKey.Enter && !string.IsNullOrWhiteSpace(CustomQueryInput.Text) && !_isAiProcessing)
         {
             await RunAI(CustomQueryInput.Text + "\n\nContext from screen: ", "✨ Processing query…");
         }
@@ -351,7 +368,7 @@ public sealed partial class MainPage : Page
                 SpawnSparkle(point.X, point.Y);
             }
 
-            if (!_isDragging && ResponseModal.Visibility == Visibility.Collapsed)
+            if (!_isDragging && !_isAiProcessing && ResponseModal.Visibility == Visibility.Collapsed)
             {
                 _hideTimer.Stop();
                 _hideTimer.Start();
@@ -367,7 +384,7 @@ public sealed partial class MainPage : Page
             RootCanvas.ReleasePointerCapture(e.Pointer);
 
             // If it was just a tiny click (no real dragging), assume they wanted to dismiss the menu
-            if (SelectionRectangle.Width < 5 && SelectionRectangle.Height < 5)
+            if (SelectionRectangle.Width < 5 || SelectionRectangle.Height < 5)
             {
                 CloseMenu();
             }
@@ -391,9 +408,12 @@ public sealed partial class MainPage : Page
                 int sw = (int)(SelectionRectangle.Width * scaleFactor);
                 int sh = (int)(SelectionRectangle.Height * scaleFactor);
 
+                int screenX = _currentDisplayBounds.X + sx;
+                int screenY = _currentDisplayBounds.Y + sy;
+
                 SelectionRectangle.Visibility = Visibility.Collapsed;
                 
-                await CaptureTextAsync(sx, sy, sw, sh);
+                await CaptureTextAsync(screenX, screenY, sw, sh);
 
                 SelectionRectangle.Visibility = Visibility.Visible;
             }
@@ -402,6 +422,7 @@ public sealed partial class MainPage : Page
 
     private byte[]? ScreenCapture(int x, int y, int w, int h)
     {
+        if (w <= 0 || h <= 0) return null;
         IntPtr hdcScreen = IntPtr.Zero, hdcMem = IntPtr.Zero, hBmp = IntPtr.Zero;
         try
         {
@@ -502,7 +523,7 @@ public sealed partial class MainPage : Page
 
     private async void SummarizeButton_Click(object sender, RoutedEventArgs e)
     {
-        await RunAI("Provide an extremely concise summary of this text.", "📝 Summarizing…");
+        await RunAI("Provide an extremely concise summary of this text.\n\nContext: ", "📝 Summarizing…");
     }
 
     private async void LensButton_Click(object sender, RoutedEventArgs e)
@@ -583,6 +604,13 @@ public sealed partial class MainPage : Page
 
     private async Task RunAI(string promptPrefix, string loadingMsg)
     {
+        if (_isAiProcessing) return;
+        _isAiProcessing = true;
+        AnalyzeButton.IsEnabled = false;
+        SummarizeButton.IsEnabled = false;
+        CustomQueryInput.IsEnabled = false;
+        LensButton.IsEnabled = false;
+
         // 1. Disable timer so menu doesn't vanish
         _hideTimer.Stop();
 
@@ -647,6 +675,14 @@ public sealed partial class MainPage : Page
         {
             response = $"❌ **Error calling Gemini API:** {ex.Message}\n\nPlease check your API key settings or your internet connection.";
         }
+        finally
+        {
+            _isAiProcessing = false;
+            AnalyzeButton.IsEnabled = true;
+            SummarizeButton.IsEnabled = true;
+            CustomQueryInput.IsEnabled = true;
+            LensButton.IsEnabled = true;
+        }
 
         // Stop the green AI loading indicator and restore the original cursor stops in code to ensure no state is sticky
         GreenSignalPulseAnimation.Stop();
@@ -657,6 +693,8 @@ public sealed partial class MainPage : Page
         CursorBrushStop1.Color = Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x00, 0xBF, 0xFF);
         CursorBrushStop2.Color = Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x00, 0x33, 0xCC);
         SparkleBrushStop2.Color = Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x40, 0xE0, 0xD0);
+
+        _lastRawResponseText = response;
 
         // 5. Format and Show the response Modal FIRST so CloseMenu knows it is open
         FormatResponseText(response);
@@ -688,22 +726,10 @@ public sealed partial class MainPage : Page
             return true;
         }
 
-        // 2. Search for visual keywords in user query
-        string lowerQuery = query.ToLowerInvariant();
-        string[] visualKeywords = new[] { 
-            "color", "colour", "describe", "look like", "logo", "diagram", 
-            "chart", "graph", "image", "picture", "photo", "drawing", 
-            "screenshot", "ui", "layout", "design", "red", "green", "blue", 
-            "yellow", "white", "black", "button", "icon", "what is this", "see",
-            "active", "selected", "checked", "highlighted", "focus", "enabled", "disabled", "status",
-            "font", "size", "styled", "shape", "border", "padding", "margin", "align"
-        };
-        foreach (var word in visualKeywords)
+        // 2. Search for visual keywords in user query with word boundaries to avoid false positives
+        if (VisualKeywordsRegex.IsMatch(query))
         {
-            if (lowerQuery.Contains(word))
-            {
-                return true;
-            }
+            return true;
         }
 
         // 3. Word count check: if text is very short (less than 4 words), it is likely a visual element like a button or icon
@@ -891,6 +917,29 @@ public sealed partial class MainPage : Page
             AddFormattedInlines(tb, trimmed);
             ResponseContentPanel.Children.Add(tb);
         }
+
+        // Flush any unclosed code block so trailing code is not discarded
+        if (inCodeBlock && !string.IsNullOrWhiteSpace(codeBlockContent))
+        {
+            var codeBorder = new Border
+            {
+                Background = CodeBlockBgBrush,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 6, 0, 6)
+            };
+            var codeTb = new TextBlock
+            {
+                Text = codeBlockContent.TrimEnd(),
+                FontFamily = MonoFont,
+                FontSize = 12.5,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Foreground = CodeTextBrush
+            };
+            codeBorder.Child = codeTb;
+            ResponseContentPanel.Children.Add(codeBorder);
+        }
     }
 
     /// <summary>
@@ -898,11 +947,10 @@ public sealed partial class MainPage : Page
     /// </summary>
     private void AddFormattedInlines(TextBlock tb, string text)
     {
-        // Process inline formatting: **bold**, *italic*, `code`
-        var regex = new System.Text.RegularExpressions.Regex(@"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)");
+        // Process inline formatting using pre-compiled regex
         int lastIndex = 0;
 
-        foreach (System.Text.RegularExpressions.Match match in regex.Matches(text))
+        foreach (System.Text.RegularExpressions.Match match in InlineMarkdownRegex.Matches(text))
         {
             // Add text before the match
             if (match.Index > lastIndex)
@@ -934,11 +982,10 @@ public sealed partial class MainPage : Page
                 var codeRun = new Microsoft.UI.Xaml.Documents.Run
                 {
                     Text = " " + match.Groups[6].Value + " ",
-                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas, monospace"),
-                    FontSize = 12
+                    FontFamily = MonoFont,
+                    FontSize = 12,
+                    Foreground = InlineCodeBrush
                 };
-                // We can't set background on Run directly, so we use a subtle visual cue
-                codeRun.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xFF, 0xAA, 0x55));
                 tb.Inlines.Add(codeRun);
             }
 
@@ -958,90 +1005,10 @@ public sealed partial class MainPage : Page
     private void CopyButton_Click(object sender, RoutedEventArgs e)
     {
         var dataPackage = new DataPackage();
-        string rawText = "";
-
-        // Walk the ResponseContentPanel and extract text from all children (TextBlocks, Borders, Grids, StackPanels)
-        foreach (var child in ResponseContentPanel.Children)
-        {
-            if (child is TextBlock textBlock)
-            {
-                string tbText = "";
-                foreach (var inline in textBlock.Inlines)
-                {
-                    if (inline is Microsoft.UI.Xaml.Documents.Run run) tbText += run.Text;
-                }
-                if (string.IsNullOrEmpty(tbText) && !string.IsNullOrEmpty(textBlock.Text))
-                {
-                    tbText = textBlock.Text;
-                }
-                rawText += tbText + Environment.NewLine;
-            }
-            else if (child is Grid grid)
-            {
-                string lineText = "";
-                // To maintain proper text layout on copy, extract bullet and content text in column order
-                var tbs = new List<TextBlock>();
-                foreach (var gridChild in grid.Children)
-                {
-                    if (gridChild is TextBlock tb)
-                    {
-                        tbs.Add(tb);
-                    }
-                }
-                
-                // Sort by Grid.Column to make sure we append bullet first, then content
-                tbs.Sort((a, b) => Grid.GetColumn(a).CompareTo(Grid.GetColumn(b)));
-
-                foreach (var tb in tbs)
-                {
-                    string tbText = "";
-                    foreach (var inline in tb.Inlines)
-                    {
-                        if (inline is Microsoft.UI.Xaml.Documents.Run run) tbText += run.Text;
-                    }
-                    if (string.IsNullOrEmpty(tbText) && !string.IsNullOrEmpty(tb.Text))
-                    {
-                        tbText = tb.Text;
-                    }
-
-                    if (Grid.GetColumn(tb) == 0)
-                    {
-                        lineText += tbText + " ";
-                    }
-                    else
-                    {
-                        lineText += tbText;
-                    }
-                }
-                rawText += lineText + Environment.NewLine;
-            }
-            else if (child is StackPanel sp)
-            {
-                foreach (var spChild in sp.Children)
-                {
-                    if (spChild is TextBlock tb)
-                    {
-                        string tbText = "";
-                        foreach (var inline in tb.Inlines)
-                        {
-                            if (inline is Microsoft.UI.Xaml.Documents.Run run) tbText += run.Text;
-                        }
-                        if (string.IsNullOrEmpty(tbText) && !string.IsNullOrEmpty(tb.Text))
-                        {
-                            tbText = tb.Text;
-                        }
-                        rawText += tbText;
-                    }
-                }
-                rawText += Environment.NewLine;
-            }
-            else if (child is Border border && border.Child is TextBlock codeTb)
-            {
-                rawText += codeTb.Text + Environment.NewLine;
-            }
-        }
-
-        dataPackage.SetText(rawText.TrimEnd());
+        string textToCopy = !string.IsNullOrEmpty(_lastRawResponseText)
+            ? _lastRawResponseText
+            : "";
+        dataPackage.SetText(textToCopy);
         Clipboard.SetContent(dataPackage);
     }
 
@@ -1112,7 +1079,8 @@ public sealed partial class MainPage : Page
         
         // Load current config to populate PasswordBox, CheckBox, and ComboBoxes
         var config = ConfigService.LoadConfig();
-        SettingsApiKeyInput.Password = config.GeminiApiKey;
+        string apiKey = ConfigService.GetApiKey(config);
+        SettingsApiKeyInput.Password = apiKey;
         StartupCheckBox.IsChecked = config.RunAtStartup;
         
         PopulateModelCombos(config.TextModel, config.ImageModel);
@@ -1131,9 +1099,9 @@ public sealed partial class MainPage : Page
         SettingsModal.Visibility = Visibility.Visible;
         App.AppWindow.SetClickThrough(false); // Enable mouse interaction
 
-        if (!string.IsNullOrWhiteSpace(config.GeminiApiKey) && _availableModels.Count <= 4)
+        if (!string.IsNullOrWhiteSpace(apiKey) && _availableModels.Count <= 4)
         {
-            _ = RefreshModelsAsync(config.GeminiApiKey, silent: true);
+            _ = RefreshModelsAsync(apiKey, silent: true);
         }
     }
 
@@ -1230,8 +1198,9 @@ public sealed partial class MainPage : Page
     private void CancelSettingsButton_Click(object sender, RoutedEventArgs e)
     {
         var config = ConfigService.LoadConfig();
+        string apiKey = ConfigService.GetApiKey(config);
         
-        if (string.IsNullOrWhiteSpace(config.GeminiApiKey))
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
             // If they cancel/exit on first-run with no key, exit the app
             Application.Current.Exit();
@@ -1258,15 +1227,15 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        // Save using ConfigService
+        // Save encrypted key using ConfigService
         var config = ConfigService.LoadConfig();
-        config.GeminiApiKey = newKey;
+        await ConfigService.SetApiKeyAsync(config, newKey);
         config.RunAtStartup = runAtStartup;
         config.TextModel = textModel;
         config.ImageModel = imageModel;
         ConfigService.SaveConfig(config);
         
-        // Update Registry for Windows Startup
+        // Update Startup (hybrid packaged/unpackaged)
         SetStartup(runAtStartup);
         
         // Update GeminiService
@@ -1287,24 +1256,59 @@ public sealed partial class MainPage : Page
         App.AppWindow.SetClickThrough(true);
     }
 
-    private void SetStartup(bool enable)
+    private static bool IsPackagedProcess()
     {
         try
         {
-            string? exePath = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exePath)) return;
+            return Windows.ApplicationModel.Package.Current != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
-            using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+    private async void SetStartup(bool enable)
+    {
+        try
+        {
+            if (IsPackagedProcess())
             {
-                if (key != null)
+                // Clean up any legacy registry key if running as packaged
+                try
                 {
-                    if (enable)
+                    using var regKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                    regKey?.DeleteValue("MagicCursor", false);
+                }
+                catch { }
+
+                var startupTask = await Windows.ApplicationModel.StartupTask.GetAsync("MagicCursorStartup");
+                if (enable)
+                {
+                    await startupTask.RequestEnableAsync();
+                }
+                else
+                {
+                    startupTask.Disable();
+                }
+            }
+            else
+            {
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath)) return;
+
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (key != null)
                     {
-                        key.SetValue("MagicCursor", $"\"{exePath}\"");
-                    }
-                    else
-                    {
-                        key.DeleteValue("MagicCursor", false);
+                        if (enable)
+                        {
+                            key.SetValue("MagicCursor", $"\"{exePath}\"");
+                        }
+                        else
+                        {
+                            key.DeleteValue("MagicCursor", false);
+                        }
                     }
                 }
             }

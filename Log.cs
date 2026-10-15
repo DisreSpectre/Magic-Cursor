@@ -20,6 +20,11 @@ internal static class Log
         Write("INFO", msg, null);
     }
 
+    public static void Warning(string msg)
+    {
+        Write("WARN", msg, null);
+    }
+
     public static void Error(string msg, Exception? ex = null)
     {
         Write("ERROR", msg, ex);

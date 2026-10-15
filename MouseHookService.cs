@@ -53,8 +53,7 @@ public class MouseHookService : IDisposable
     private LowLevelMouseProc _proc; // Keep reference to prevent GC
 
     // --- Shake Detection State ---
-    private int _lastX = -1;
-    private long _lastTime = 0;
+    private int? _lastX = null;
     private int _direction = 0; // 1 for right, -1 for left
     private int _turnCount = 0;
     private long _firstTurnTime = 0;
@@ -103,23 +102,22 @@ public class MouseHookService : IDisposable
         if (nCode >= 0 && wParam == (IntPtr)WM_MOUSEMOVE)
         {
             MSLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-            AnalyzeMovementForShake(hookStruct.pt.x, hookStruct.pt.y, hookStruct.time);
+            AnalyzeMovementForShake(hookStruct.pt.x, hookStruct.pt.y);
         }
         return CallNextHookEx(_hookID, nCode, wParam, lParam);
     }
 
-    private void AnalyzeMovementForShake(int currentX, int currentY, uint timeMs)
+    private void AnalyzeMovementForShake(int currentX, int currentY)
     {
         long currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        if (_lastX == -1)
+        if (!_lastX.HasValue)
         {
             _lastX = currentX;
-            _lastTime = currentTime;
             return;
         }
 
-        int deltaX = currentX - _lastX;
+        int deltaX = currentX - _lastX.Value;
 
         // Check if movement is significant enough to register a direction
         if (Math.Abs(deltaX) > MovementThreshold)
@@ -149,14 +147,13 @@ public class MouseHookService : IDisposable
                     
                     // Reset to avoid multiple triggers
                     _turnCount = 0;
-                    _lastX = -1; // Force full reset
+                    _lastX = null; // Force full reset
                     return;
                 }
             }
 
             _direction = currentDirection;
             _lastX = currentX;
-            _lastTime = currentTime;
         }
     }
 

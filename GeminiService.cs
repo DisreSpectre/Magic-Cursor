@@ -102,13 +102,18 @@ public class GeminiService
                 }
             };
 
-            var response = await _client.Models.GenerateContentAsync(modelToUse, contents, config);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var response = await _client.Models.GenerateContentAsync(modelToUse, contents, config, cts.Token);
 
             // Primary: extract only non-thought parts from the response
             string rawText = ExtractCleanText(response);
 
             // Secondary: regex cleanup for any remaining artifacts
             return CleanResponse(rawText);
+        }
+        catch (OperationCanceledException)
+        {
+            return "⏱ AI Error: Request timed out after 30 seconds. Please check your internet connection or try again.";
         }
         catch (Exception ex)
         {

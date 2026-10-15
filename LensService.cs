@@ -13,18 +13,11 @@ public record LensResult(bool Success, string Reason = "")
 
 public static class LensService
 {
-    private const int MaxSizeBytes = 8 * 1024 * 1024; // 8 MB
-
     public static async Task<LensResult> SearchAsync(byte[]? pngBytes)
     {
         if (pngBytes == null || pngBytes.Length == 0)
         {
             return LensResult.Failed("No image data captured.");
-        }
-
-        if (pngBytes.Length > MaxSizeBytes)
-        {
-            return LensResult.Failed("Selection too large. Image must be under 8 MB.");
         }
 
         string? generatedFilePath = null;
